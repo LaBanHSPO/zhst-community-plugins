@@ -1,0 +1,70 @@
+{
+	"name": "@zerohost/plugin-restaurant-chain",
+	"version": "0.1.0",
+	"description": "Cloudflare restaurant ordering, branch settlement and SePay invoicing for EmDash",
+	"license": "MIT",
+	"files": [
+		"dist",
+		"src",
+		"migrations",
+		"README.md",
+		"LICENSE"
+	],
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs"
+		},
+		"./server": {
+			"types": "./dist/server.d.mts",
+			"import": "./dist/server.mjs"
+		},
+		"./admin": "./src/admin/index.tsx",
+		"./client": "./src/admin/client.ts",
+		"./locale": "./src/admin/locale.tsx",
+		"./ui": "./src/admin/shared.tsx",
+		"./types": "./src/domain/types.ts"
+	},
+	"scripts": {
+		"build": "tsdown",
+		"typecheck": "tsc --noEmit",
+		"test": "tsx --test --test-concurrency=1 tests/*.test.ts src/admin/*.test.ts",
+		"check": "npm run typecheck && npm test && npm run build"
+	},
+	"dependencies": {
+		"@cloudflare/kumo": "2.6.0",
+		"@lingui/core": "5.9.5",
+		"@lingui/react": "5.9.5",
+		"qrcode": "1.5.4",
+		"zod": "4.6.5"
+	},
+	"devDependencies": {
+		"@astrojs/react": "7.0.1",
+		"@cloudflare/workers-types": "5.20261010.1",
+		"@types/node": "24.10.1",
+		"@types/qrcode": "1.5.6",
+		"@types/react": "19.3.0",
+		"astro": "7.3.5",
+		"emdash": "1.2.0",
+		"miniflare": "5.20261006.1-alpha",
+		"react": "19.3.0",
+		"react-dom": "19.3.0",
+		"tsdown": "0.23.0",
+		"tsx": "4.23.15",
+		"typescript": "5.9.3"
+	},
+	"peerDependencies": {
+		"emdash": "1.2.0",
+		"react": "19.3.0",
+		"react-dom": "19.3.0"
+	},
+	"overrides": {
+		"@astrojs/react": {
+			"@vitejs/plugin-react": "6.1.1"
+		}
+	},
+	"engines": {
+		"node": "^24.15.0 || >=26.0.0"
+	}
+}

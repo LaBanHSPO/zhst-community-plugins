@@ -14,6 +14,10 @@ The [ERP mini plugin](plugins/erp-mini/README.md) adds private customers/contact
 
 This is an independent TypeScript implementation, not a Frappe runtime or ERPNext connector. Its EmDash 1.2.0 baseline is separate from the existing hosting-platform 1.1.0 baseline. It does not include accounting, tax, inventory ledgers or automatic hosting-catalog registration.
 
+## Restaurant chain
+
+The [restaurant chain plugin](plugins/restaurant-chain/README.md) provides table QR/NFC ordering, staff confirmation, kitchen preparation, branch-specific SePay collection, electronic invoicing, and accounting source exports. Its paired Cloudflare theme uses dedicated D1 data, durable inbox/outbox records, Queues, and scheduled recovery. It is separate from ERP mini and requires provider conformance and hosting-platform promotion before production use.
+
 ## Acceptance is not deployment
 
 A merged community PR accepts source only. Fetching this repository as a hosting-platform build submodule must not install dependencies, execute plugin code, activate plugins, or deploy them.
