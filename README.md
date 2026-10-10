@@ -8,6 +8,12 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md) for the complete fork-to-PR workfl
 
 No private hosting-platform checkout, platform credentials, customer data, or cloud account is required for the local native-plugin workflow. Existing proprietary runtimes and curated plugins remain private; do not copy them here.
 
+## ERP mini customer forks
+
+The [ERP mini plugin](plugins/erp-mini/README.md) adds private customers/contacts, items/services, quotations and sales-order conversion to upstream EmDash. Use the companion community theme as its standalone host. The [ERPNext adaptation guide](plugins/erp-mini/docs/porting.md) covers workflow mapping, customer-isolated forks and AI-assisted development; [compatibility operations](plugins/erp-mini/docs/compatibility.md) cover daily core checks and reviewed upgrades.
+
+This is an independent TypeScript implementation, not a Frappe runtime or ERPNext connector. Its EmDash 1.2.0 baseline is separate from the existing hosting-platform 1.1.0 baseline. It does not include accounting, tax, inventory ledgers or automatic hosting-catalog registration.
+
 ## Acceptance is not deployment
 
 A merged community PR accepts source only. Fetching this repository as a hosting-platform build submodule must not install dependencies, execute plugin code, activate plugins, or deploy them.

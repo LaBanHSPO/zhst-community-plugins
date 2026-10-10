@@ -22,6 +22,8 @@ Describe the user problem and the least authority needed to solve it. Do not cop
 
 The review baseline is **EmDash 1.1.0**, **Astro 7.3.5**, and Node **`^22.22.2 || ^24.15.0 || >=26.0.0`**. Hosting-platform Cloudflare review uses **`@astrojs/cloudflare` 14.3.3**; a Node-only local result does not establish Cloudflare compatibility. The commands below use **pnpm 11**. Record the actual versions and lockfiles used in your evidence.
 
+For the implemented CRM/sales starter, use the [ERP mini package guide](plugins/erp-mini/README.md) instead of generating another host below. ERP mini needs its own tested **EmDash 1.2.0** baseline and the sibling community theme. The private platform's 1.1.0 baseline is not automatically upgraded or declared compatible by that package.
+
 Native plugins are the primary route for hosting consideration because the platform currently uses curated native plugins. Follow the [official native tutorial](https://docs.emdashcms.com/plugins/creating-native-plugins/your-first-native-plugin/) for `PluginDescriptor`, the named `createPlugin` export and `definePlugin()`; do not invent a native generator flag. Native code has the host process's authority. Capability declarations are not a sandbox, so native execution needs a specific justification and source/dependency review.
 
 The [official sandboxed-plugin generator](https://docs.emdashcms.com/plugins/creating-plugins/your-first-plugin/) is an optional upstream authoring route. Arbitrary sandboxed installation on the hosting platform is **unverified**, not promised. Never disable sandboxing or silently move a sandboxed contribution into native execution to make a test pass. Keep those formats and their evidence distinct.

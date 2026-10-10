@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /plugins/erp-mini
+    schedule:
+      interval: daily
+      time: "05:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    groups:
+      emdash-core:
+        patterns: ["emdash"]
+      react-host:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom", "@astrojs/react", "oxc-transform-react"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
