@@ -1,0 +1,36 @@
+{
+  "name": "@zerohost/plugin-erp-mini",
+  "version": "0.1.0",
+  "description": "Private CRM and sales workflows for independent EmDash installations",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": "^24.15.0 || >=26.0.0" },
+  "exports": {
+    ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" },
+    "./admin": "./src/admin/index.tsx"
+  },
+  "files": ["dist", "src", "docs", "AGENTS.md", "LICENSE", "README.md"],
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts --clean",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "compatibility": "node scripts/compatibility.mjs",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": { "zod": "4.6.5" },
+  "peerDependencies": { "emdash": ">=1.2.0 <2", "react": "^19.0.0" },
+  "overrides": { "@astrojs/react": { "@vitejs/plugin-react": "6.1.1" } },
+  "devDependencies": {
+    "@astrojs/react": "7.0.1",
+    "@types/node": "24.10.1",
+    "@types/react": "19.3.0",
+    "astro": "7.3.5",
+    "emdash": "1.2.0",
+    "kysely": "0.29.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tsdown": "0.23.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}

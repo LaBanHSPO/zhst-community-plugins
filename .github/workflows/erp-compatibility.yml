@@ -1,0 +1,60 @@
+name: ERP compatibility
+
+on:
+  pull_request:
+    paths:
+      - 'plugins/erp-mini/**'
+      - '.github/workflows/erp-compatibility.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/erp-mini/**'
+      - '.github/workflows/erp-compatibility.yml'
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: erp-compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    name: EmDash ${{ matrix.core }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        core: [baseline, latest]
+    steps:
+      - name: Check out plugin under review
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: zhst-community-plugins
+          persist-credentials: false
+      - name: Check out reviewed companion theme
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ZeroHostCMS/zhst-community-themes
+          ref: 74a8bead947a4d8fe79c28eafeb6667b317bb035
+          path: zhst-community-themes
+          persist-credentials: false
+      - name: Record exact source pair
+        run: |
+          git -C zhst-community-plugins rev-parse HEAD
+          git -C zhst-community-themes rev-parse HEAD
+      - name: Set up supported Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            zhst-community-plugins/plugins/erp-mini/package-lock.json
+            zhst-community-themes/themes/erp-mini/package-lock.json
+      - name: Check business behavior, packed plugin and both runtimes
+        working-directory: zhst-community-plugins/plugins/erp-mini
+        run: npm run compatibility -- --core "${{ matrix.core }}"

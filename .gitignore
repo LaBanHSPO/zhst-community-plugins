@@ -1,0 +1,40 @@
+# Dependencies and generated output (each plugin is independent).
+node_modules/
+.pnpm-store/
+dist/
+build/
+.astro/
+.cache/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+*.tgz
+*.tar.gz
+
+# Credentials: only sanitized example files may be committed.
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+
+# Disposable CMS/Worker state; keep reviewed synthetic fixtures in source.
+.wrangler/
+.emdash/
+.local/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+uploads/
+
+# Machine/editor leftovers.
+*.log
+.DS_Store
+*.swp
+*.swo
