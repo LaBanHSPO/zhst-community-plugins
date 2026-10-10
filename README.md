@@ -1,6 +1,6 @@
 # ZeroHostCMS community plugins
 
-Public, independently developed EmDash plugins proposed for ZeroHostCMS review. This repository is a source contribution project, not an installer, plugin registry, or copy of the private hosting platform.
+Community plugins for [ZeroHostCMS](https://zerohostcms.com/), built as public, independently developed EmDash plugins and proposed for ZeroHostCMS review. This repository is a source contribution project, not an installer, plugin registry, or copy of the private hosting platform.
 
 ## Contribute
 
