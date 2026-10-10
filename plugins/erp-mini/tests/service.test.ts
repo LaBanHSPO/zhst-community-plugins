@@ -17,7 +17,7 @@ const ids = {
 };
 const customerInput: CustomerInput = { id: ids.customer, revision: null, code: 'C-1', name: 'Acme', email: 'sales@example.test', phone: '123', address: 'One Main St', contacts: [{ name: 'Jo', email: 'jo@example.test', phone: '456' }], active: true };
 const itemInput: ItemInput = { id: ids.item, revision: null, code: 'I-1', name: 'Consulting', unit: 'hour', priceMinor: 1250, active: true };
-const quoteInput: QuoteInput = { id: ids.quote, revision: null, reference: 'Project A', customerId: ids.customer, contactIndex: 0, lines: [{ itemId: ids.item, quantity: 3 }], validUntil: '2030-01-02', notes: 'Agreed scope' };
+const quoteInput: QuoteInput = { id: ids.quote, revision: null, reference: 'Project A', customerId: ids.customer, contact: customerInput.contacts[0], lines: [{ itemId: ids.item, quantity: 3 }], validUntil: '2030-01-02', notes: 'Agreed scope' };
 
 async function fixture(t: TestContext, currency: Currency = 'USD') {
   const db = new Kysely<Database>({ dialect: createDialect({ url: ':memory:' }) });
@@ -85,6 +85,25 @@ test('draft saves use server snapshots and submitted offers survive archived/edi
   assert.deepEqual(order.value.lines, quote.value.lines);
   assert.deepEqual(order.value.customer, quote.value.customer);
   assert.equal(order.value.order?.number, `SO-${ids.quote}`);
+});
+
+test('keeps a selected contact stable across customer contact changes', async (t) => {
+  const { service } = await fixture(t);
+  const { customer, quote } = await seed(service);
+  const changed = await service.saveCustomer({
+    ...customerInput, revision: customer.revision,
+    contacts: [{ name: 'Another contact', email: 'other@example.test', phone: '789' }, ...customerInput.contacts],
+  });
+  const revised = await service.saveQuote({ ...quoteInput, revision: quote.revision });
+  assert.deepEqual(revised.value.customer.contact, customerInput.contacts[0]);
+  await service.saveCustomer({
+    ...customerInput, revision: changed.revision,
+    contacts: [{ ...customerInput.contacts[0], email: 'changed@example.test' }],
+  });
+  await rejectsCode(service.saveQuote({ ...quoteInput, revision: revised.revision }), 'CONFLICT');
+  assert.deepEqual(await service.get({ entity: 'quotes', id: revised.id }), revised);
+  const unnamed = await service.saveQuote({ ...quoteInput, revision: revised.revision, contact: undefined });
+  assert.equal(unnamed.value.customer.contact, undefined);
 });
 
 test('concurrent conversion has exactly one CAS winner and one persisted aggregate', async (t) => {
@@ -184,7 +203,7 @@ test('draft references require active existing masters and existing selected con
   const { service } = await fixture(t);
   await rejectsCode(service.saveQuote(quoteInput), 'NOT_FOUND');
   const { customer, item, quote } = await seed(service);
-  await rejectsCode(service.saveQuote({ ...quoteInput, revision: quote.revision, contactIndex: 1 }), 'INVALID_INPUT');
+  await rejectsCode(service.saveQuote({ ...quoteInput, revision: quote.revision, contact: { name: 'Unknown', email: '', phone: '' } }), 'CONFLICT');
   const archived = await service.saveCustomer({ ...customerInput, revision: customer.revision, active: false });
   await rejectsCode(service.saveQuote({ ...quoteInput, revision: quote.revision }), 'ARCHIVED_MASTER');
   await service.saveCustomer({ ...customerInput, revision: archived.revision, active: true });

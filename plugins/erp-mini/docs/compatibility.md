@@ -50,11 +50,12 @@ Before approving any candidate, exercise the browser using the **built** applica
 
 For the 0.1.0 implementation, Node 24.21.0 tested the pinned baseline and npm's current latest, both **EmDash 1.2.0**:
 
-- All 16 business tests passed using real temporary EmDash SQLite repositories, including concurrent conversion, stale revisions, snapshot retention, money bounds, schema rejection and separate-database isolation.
+- All 17 business tests passed using real temporary EmDash SQLite repositories, including concurrent conversion, stale revisions, snapshot retention, contact-selection changes, money bounds, schema rejection and separate-database isolation.
 - The packed-plugin runner passed typechecks/builds, production Node startup and local Cloudflare/workerd startup. Both homepages returned 200 and both private ERP APIs returned 401 without authentication.
 - A real production-mode browser session completed first-admin passkey enrollment, customer/contact and item creation, a USD 370.35 quotation, submission, acceptance, one order conversion and fulfillment.
 - Actual HTTP checks rejected anonymous access (401), missing CSRF headers (403), an editor session (403) and an invalid method in the authenticated session (405).
 - The browser retained unsaved input after a stale-save conflict and declined navigation, selected a customer beyond page one, and displayed the workspace at a 375px viewport.
+- A contact-selection regression failed before the fix and passed afterward. The production browser also preserved the selected recipient across a concurrent contact reorder; changing that contact rejected the save while retaining the form and leaving the stored quotation revision/snapshot unchanged.
 
 Observed upstream warnings remain visible: the admin client has a chunk over 500 kB, and EmDash's locale loader reports a fallback for the native plugin's plain-text English navigation label. No core patch or warning suppression was added. These local results are **not** remote Cloudflare deployment, a full accessibility/security audit, email delivery, backup restoration, accounting acceptance or measured thousand-installation capacity.
 

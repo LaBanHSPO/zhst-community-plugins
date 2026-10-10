@@ -25,7 +25,7 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
   return Number.isFinite(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
 }, 'Enter a real calendar date (YYYY-MM-DD).');
 export const quoteSchema = z.strictObject({
-  ...identity, reference: text(200), customerId: uuid, contactIndex: z.number().int().min(0).max(MAX_CONTACTS - 1).optional(),
+  ...identity, reference: text(200), customerId: uuid, contact: contactSchema.optional(),
   lines: z.array(z.strictObject({ itemId: uuid, quantity: z.number().int().min(1).max(1_000_000) })).min(1).max(MAX_LINES),
   validUntil: date, notes: text(2000),
 });

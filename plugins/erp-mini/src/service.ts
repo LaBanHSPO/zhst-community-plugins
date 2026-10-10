@@ -128,8 +128,10 @@ export class ErpService {
     if (previous && previous.status !== 'draft') throw new ErpError('INVALID_TRANSITION', 'Only draft quotations can be edited.');
     const { value: customer } = await this.read(this.storage.customers, data.customerId, customerRecordSchema);
     if (!customer.active) throw new ErpError('ARCHIVED_MASTER', 'Select an active customer.');
-    const contact = data.contactIndex === undefined ? undefined : customer.contacts[data.contactIndex];
-    if (data.contactIndex !== undefined && !contact) throw new ErpError('INVALID_INPUT', 'The selected contact no longer exists. Reload the customer.');
+    const selectedContact = data.contact;
+    const contact = selectedContact ? customer.contacts.find((candidate) =>
+      candidate.name === selectedContact.name && candidate.email === selectedContact.email && candidate.phone === selectedContact.phone) : undefined;
+    if (selectedContact && !contact) throw new ErpError('CONFLICT', 'The selected contact changed or was removed. Reload the customer and choose again.');
     const lines: Sale['lines'] = [];
     let totalMinor = 0;
     for (const line of data.lines) {

@@ -49,6 +49,7 @@ A submitted quotation cannot be edited. Cancel an unconverted quotation and crea
 - **Bounded work:** 25 records per page; at most 10 embedded contacts and 50 quotation lines. Search is a case-normalized name prefix on customer/item indexes. The UI offers pagination for lists and master-record selection.
 - **No lost updates:** creates use a client UUID and absent-record compare-and-set; edits/actions require the last returned opaque revision. A conflict retains the user's form. Reload intentionally and reapply the change; never remove the revision or silently retry a stale mutation.
 - **Historical truth:** submitted customer/contact/item/price snapshots do not follow later master edits or archives. Archiving does not erase history. No hard-delete API exists.
+- **Stable contact selection:** `save-quote` accepts the displayed contact's `{ name, email, phone }` snapshot, not an array index. The server matches it against that customer's current contacts. Reordering cannot change the recipient; a changed/removed contact returns a conflict until the operator explicitly reloads/reselects.
 - **Atomic conversion:** quotation and its optional order are one `sales` aggregate. Cross-record storage calls are not a transaction; this package is not a general financial ledger.
 - **Versioned data:** values carry `schemaVersion`. Unknown versions are rejected rather than overwritten by an older fork. Metadata comes from the authenticated actor and server clock, not user input. Timestamps are not a full append-only audit log.
 

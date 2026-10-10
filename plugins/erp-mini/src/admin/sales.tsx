@@ -61,7 +61,7 @@ export function QuoteEditor({ id, record, info, onSaved, onBlock, onReload }: Ed
   return <form onSubmit={(event) => {
     event.preventDefault();
     if (!customer?.value.active || !lines.length || contactLost || !validEstimate) { mutation.setError(new Error('Choose an active customer, resolve the contact selection, and add 1–50 lines with whole quantities from 1 to 1,000,000.')); return; }
-    const input: QuoteInput = { id, revision: record?.revision ?? null, reference, customerId: customer.id, ...(contactIndex === '' ? {} : { contactIndex: Number(contactIndex) }), lines: lines.map((line) => ({ itemId: line.itemId, quantity: Number(line.quantity) })), validUntil, notes };
+    const input: QuoteInput = { id, revision: record?.revision ?? null, reference, customerId: customer.id, ...(contactIndex === '' ? {} : { contact: customer.value.contacts[Number(contactIndex)] }), lines: lines.map((line) => ({ itemId: line.itemId, quantity: Number(line.quantity) })), validUntil, notes };
     void mutation.run(() => request<RecordView<Sale>>('save-quote', input), onSaved);
   }}>
     <Failure error={mutation.error} />

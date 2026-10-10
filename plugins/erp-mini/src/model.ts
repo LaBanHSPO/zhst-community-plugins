@@ -73,7 +73,7 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: { code: s
 export interface Info { version: '0.1.0'; currency: Currency; minorUnits: number; pageSize: 25; maxLines: 50; maxContacts: 10 }
 export interface CustomerInput extends Contact { id: string; revision: string | null; code: string; address: string; contacts: Contact[]; active: boolean }
 export interface ItemInput { id: string; revision: string | null; code: string; name: string; unit: string; priceMinor: number; active: boolean }
-export interface QuoteInput { id: string; revision: string | null; reference: string; customerId: string; contactIndex?: number; lines: { itemId: string; quantity: number }[]; validUntil: string; notes: string }
+export interface QuoteInput { id: string; revision: string | null; reference: string; customerId: string; contact?: Contact; lines: { itemId: string; quantity: number }[]; validUntil: string; notes: string }
 export interface TransitionInput { id: string; revision: string; action: Action }
 export interface ListInput { entity: Entity; cursor?: string; search?: string; active?: boolean }
 export interface GetInput { entity: Entity; id: string }
