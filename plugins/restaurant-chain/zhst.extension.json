@@ -1,0 +1,8 @@
+{
+	"schema": 1,
+	"id": "restaurant-chain",
+	"kind": "plugin",
+	"name": "Restaurant Chain",
+	"emdash": "1.2.0",
+	"entry": "plugins/restaurant-chain"
+}
