@@ -20,7 +20,7 @@ Describe the user problem and the least authority needed to solve it. Do not cop
 
 ## Compatibility and execution format
 
-The review baseline is **EmDash 1.1.0**, **Astro 7.3.5**, and Node **`^22.22.2 || ^24.15.0 || >=26.0.0`**. Hosting-platform Cloudflare review uses **`@astrojs/cloudflare` 14.3.3**; a Node-only local result does not establish Cloudflare compatibility. The commands below use **pnpm 11.9.0**. Record the actual versions and lockfiles used in your evidence.
+The review baseline is **EmDash 1.1.0**, **Astro 7.3.5**, and Node **`^22.22.2 || ^24.15.0 || >=26.0.0`**. Hosting-platform Cloudflare review uses **`@astrojs/cloudflare` 14.3.3**; a Node-only local result does not establish Cloudflare compatibility. The commands below use **pnpm 11**. Record the actual versions and lockfiles used in your evidence.
 
 Native plugins are the primary route for hosting consideration because the platform currently uses curated native plugins. Follow the [official native tutorial](https://docs.emdashcms.com/plugins/creating-native-plugins/your-first-native-plugin/) for `PluginDescriptor`, the named `createPlugin` export and `definePlugin()`; do not invent a native generator flag. Native code has the host process's authority. Capability declarations are not a sandbox, so native execution needs a specific justification and source/dependency review.
 
@@ -55,10 +55,17 @@ mkdir -p plugins/plugin-activity/src
 cd plugins/plugin-activity
 ```
 
-Follow the [native tutorial's package and source instructions](https://docs.emdashcms.com/plugins/creating-native-plugins/your-first-native-plugin/#create-and-register-the-package) in this directory, rather than its example sibling directory. Use its `package.json`, TypeScript configuration and native API as the starting point; implement your actual feature and tests, not just the tutorial log hook. Set the EmDash peer compatibility range to what you can demonstrate, rather than copying the tutorial's wildcard. Use the baseline for development:
+Follow the [native tutorial's package and source instructions](https://docs.emdashcms.com/plugins/creating-native-plugins/your-first-native-plugin/#create-and-register-the-package) in this directory, rather than its example sibling directory. Use its `package.json` and native API as the starting point; implement your actual feature and tests, not just the tutorial log hook. Set the EmDash peer compatibility range to what you can demonstrate, rather than copying the tutorial's wildcard.
+
+In the tutorial's `tsconfig.json`, add `"extends": "astro/tsconfigs/strict"` at the top level. Use Astro's strict preset for plugin-source checking: its standard declaration-file policy avoids requiring every optional database/storage driver referenced by dependency declarations. The tutorial's bare configuration traverses those unrelated declarations and fails on missing optional packages at this baseline. This does not validate dependency internals; source type-checking, the package build and real host integration remain required. Pin the same Astro version used by the host:
 
 ```sh
-pnpm add -D --save-exact emdash@1.1.0
+pnpm add -D --save-exact emdash@1.1.0 astro@7.3.5
+```
+
+If pnpm reports `ERR_PNPM_IGNORED_BUILDS`, review its listed dependency scripts and use `pnpm approve-builds` to allow only the required, reviewed builds. Astro's `esbuild` binary installation is needed for this walkthrough; do not approve every package indiscriminately. Commit the resulting project-local `pnpm-workspace.yaml` build policy with the lockfile. This file configures the independent plugin project, not the private platform workspace. Then run:
+
+```sh
 pnpm run typecheck
 pnpm run build
 ```
