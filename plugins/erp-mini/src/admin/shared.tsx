@@ -63,7 +63,7 @@ export function Paged<T>({ entity, search, active, children }: {
     {loading && <p role="status">Loading {entity === 'quotes' ? 'quotations' : entity}…</p>}
     <Failure error={error} retry={() => setRetry((value) => value + 1)} />
     {page && (page.items.length ? children(page) : <p className="erp-empty">{search ? `No names beginning with “${search}”. Change or clear your search.` : 'No records on this page. Create a record or adjust the filters.'}</p>)}
-    <div className="erp-pagination" aria-label="Pagination">
+    <nav className="erp-pagination" aria-label="Pagination">
       <button type="button" disabled={loading || pageIndex === 0} onClick={() => setPageIndex((index) => index - 1)}>Previous</button>
       <span>Page {pageIndex + 1}{page ? ` · ${page.items.length} shown` : ''}</span>
       <button type="button" disabled={loading || !page?.hasMore || !page.cursor} onClick={() => {
@@ -71,7 +71,7 @@ export function Paged<T>({ entity, search, active, children }: {
         setCursors((values) => [...values.slice(0, pageIndex + 1), page.cursor]);
         setPageIndex((index) => index + 1);
       }}>Next</button>
-    </div>
+    </nav>
   </section>;
 }
 

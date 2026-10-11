@@ -116,7 +116,7 @@ function Workspace() {
 		return !dirty.current || window.confirm(t("unsaved"));
 	}
 	return (
-		<main
+		<div
 			className="rc-workspace"
 			onChangeCapture={(event) => {
 				if (event.target instanceof Element && event.target.closest("form")) dirty.current = true;
@@ -210,7 +210,7 @@ function Workspace() {
 				</div>
 			)}
 			<footer className="rc-footer">{t("online")}</footer>
-		</main>
+		</div>
 	);
 }
 
