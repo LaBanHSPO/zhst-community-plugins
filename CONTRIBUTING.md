@@ -20,9 +20,9 @@ Describe the user problem and the least authority needed to solve it. Do not cop
 
 ## Compatibility and execution format
 
-The review baseline is **EmDash 1.1.0**, **Astro 7.3.5**, and Node **`^22.22.2 || ^24.15.0 || >=26.0.0`**. Hosting-platform Cloudflare review uses **`@astrojs/cloudflare` 14.3.3**; a Node-only local result does not establish Cloudflare compatibility. The commands below use **pnpm 11**. Record the actual versions and lockfiles used in your evidence.
+The review baseline is **EmDash 1.2.0**, **Astro 7.3.5**, and Node **`^22.22.2 || ^24.15.0 || >=26.0.0`**. Hosting-platform Cloudflare review uses **`@astrojs/cloudflare` 14.3.3**; a Node-only local result does not establish Cloudflare compatibility. The commands below use **pnpm 11**. Record the actual versions and lockfiles used in your evidence.
 
-For the implemented CRM/sales starter, use the [ERP mini package guide](plugins/erp-mini/README.md) instead of generating another host below. ERP mini needs its own tested **EmDash 1.2.0** baseline and the sibling community theme. The private platform's 1.1.0 baseline is not automatically upgraded or declared compatible by that package.
+For the implemented CRM/sales starter, use the [ERP mini package guide](plugins/erp-mini/README.md) instead of generating another host below. ERP mini needs its own tested **EmDash 1.2.0** baseline and the sibling community theme, matching the review baseline above.
 
 Native plugins are the primary route for hosting consideration because the platform currently uses curated native plugins. Follow the [official native tutorial](https://docs.emdashcms.com/plugins/creating-native-plugins/your-first-native-plugin/) for `PluginDescriptor`, the named `createPlugin` export and `definePlugin()`; do not invent a native generator flag. Native code has the host process's authority. Capability declarations are not a sandbox, so native execution needs a specific justification and source/dependency review.
 
@@ -36,9 +36,9 @@ From the community repository root, create a sibling site, not a private workspa
 
 ```sh
 cd ..
-pnpm create emdash@1.1.0 plugin-review-host --platform node --template starter --pm pnpm --no-install --yes
+pnpm create emdash@1.2.0 plugin-review-host --platform node --template starter --pm pnpm --no-install --yes
 cd plugin-review-host
-pnpm add --save-exact emdash@1.1.0 astro@7.3.5
+pnpm add --save-exact emdash@1.2.0 astro@7.3.5
 pnpm dev
 ```
 
@@ -62,7 +62,7 @@ Follow the [native tutorial's package and source instructions](https://docs.emda
 In the tutorial's `tsconfig.json`, add `"extends": "astro/tsconfigs/strict"` at the top level. Use Astro's strict preset for plugin-source checking: its standard declaration-file policy avoids requiring every optional database/storage driver referenced by dependency declarations. The tutorial's bare configuration traverses those unrelated declarations and fails on missing optional packages at this baseline. This does not validate dependency internals; source type-checking, the package build and real host integration remain required. Pin the same Astro version used by the host:
 
 ```sh
-pnpm add -D --save-exact emdash@1.1.0 astro@7.3.5
+pnpm add -D --save-exact emdash@1.2.0 astro@7.3.5
 ```
 
 If pnpm reports `ERR_PNPM_IGNORED_BUILDS`, review its listed dependency scripts and use `pnpm approve-builds` to allow only the required, reviewed builds. Astro's `esbuild` binary installation is needed for this walkthrough; do not approve every package indiscriminately. Commit the resulting project-local `pnpm-workspace.yaml` build policy with the lockfile. This file configures the independent plugin project, not the private platform workspace. Then run:
@@ -104,10 +104,10 @@ mkdir -p plugins
 cd plugins
 pnpm dlx @emdash-cms/plugin-cli@0.13.3 init my-plugin
 cd my-plugin
-pnpm add -D --save-exact emdash@1.1.0
+pnpm add -D --save-exact emdash@1.2.0
 ```
 
-Answer the identity prompts with information you intend to publish. Review the summary, generated scripts and local instructions before executing them. The [released CLI](https://unpkg.com/@emdash-cms/plugin-cli@0.13.3/README.md) owns the command and the [manifest reference](https://docs.emdashcms.com/plugins/creating-plugins/manifest/) owns the schema. This CLI release generates a pre-1.0 EmDash development range; the explicit development dependency above replaces it. Also narrow the generated EmDash peer range to your demonstrated compatibility. Do not mistake successful generation for EmDash 1.1.0 compatibility.
+Answer the identity prompts with information you intend to publish. Review the summary, generated scripts and local instructions before executing them. The [released CLI](https://unpkg.com/@emdash-cms/plugin-cli@0.13.3/README.md) owns the command and the [manifest reference](https://docs.emdashcms.com/plugins/creating-plugins/manifest/) owns the schema. This CLI release generates a pre-1.0 EmDash development range; the explicit development dependency above replaces it. Also narrow the generated EmDash peer range to your demonstrated compatibility. Do not mistake successful generation for EmDash 1.2.0 compatibility.
 
 Implement the feature and its tests using the [sandboxed tutorial](https://docs.emdashcms.com/plugins/creating-plugins/your-first-plugin/) and the package's generated scripts:
 
