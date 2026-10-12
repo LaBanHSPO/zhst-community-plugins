@@ -18,6 +18,10 @@ This is an independent TypeScript implementation, not a Frappe runtime or ERPNex
 
 The [restaurant chain plugin](plugins/restaurant-chain/README.md) provides table QR/NFC ordering, staff confirmation, kitchen preparation, branch-specific SePay collection, electronic invoicing, and accounting source exports. Its paired Cloudflare theme uses dedicated D1 data, durable inbox/outbox records, Queues, and scheduled recovery. It is separate from ERP mini and requires provider conformance and hosting-platform promotion before production use.
 
+## OTA server
+
+The [OTA server plugin](plugins/ota-server/README.md) hosts over-the-air builds for Android and iOS apps: it publishes the manifest the clients poll, stores bundles, verifies their sha256, keeps the current and previous build per channel, expires stale ones after 14 days, and gives an app manager a workspace for releases, rollbacks, per-app push tokens and an audit trail. Storage is either the site's own storage plan or a private R2 bucket whose secret is encrypted at rest. The [companion theme](../../zhst-community-themes/themes/ota-server/README.md) owns the frozen `/ota/*` client paths, which EmDash plugin routes cannot serve because their request bodies are capped well below a bundle. It replaces a temporary Vercel Blob setup; it is not a hosting-platform catalog entry.
+
 ## Acceptance is not deployment
 
 A merged community PR accepts source only. Fetching this repository as a hosting-platform build submodule must not install dependencies, execute plugin code, activate plugins, or deploy them.

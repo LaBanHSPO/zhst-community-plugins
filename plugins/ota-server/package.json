@@ -1,0 +1,69 @@
+{
+	"name": "@zerohost/plugin-ota-server",
+	"version": "0.1.0",
+	"description": "OTA release server for EmDash native apps: manifest and bundle distribution on the site storage or a user-owned S3-compatible bucket",
+	"license": "MIT",
+	"type": "module",
+	"files": [
+		"dist",
+		"src",
+		"migrations",
+		"README.md",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs"
+		},
+		"./server": {
+			"types": "./dist/server.d.mts",
+			"import": "./dist/server.mjs"
+		},
+		"./admin": "./src/admin/index.tsx",
+		"./client": "./src/admin/client.ts",
+		"./types": "./src/domain/types.ts",
+		"./migrations": "./migrations"
+	},
+	"scripts": {
+		"build": "tsdown",
+		"typecheck": "tsc --noEmit",
+		"test": "tsx --test --test-concurrency=1 tests/*.test.ts",
+		"check": "npm run typecheck && npm test && npm run build"
+	},
+	"dependencies": {
+		"@cloudflare/kumo": "2.6.0",
+		"zod": "4.6.5"
+	},
+	"peerDependencies": {
+		"emdash": "1.2.0",
+		"react": "19.3.0",
+		"react-dom": "19.3.0"
+	},
+	"devDependencies": {
+		"@astrojs/react": "7.0.1",
+		"@cloudflare/workers-types": "5.20261010.1",
+		"@types/node": "24.10.1",
+		"@types/react": "19.3.0",
+		"astro": "7.3.5",
+		"emdash": "1.2.0",
+		"miniflare": "5.20261006.1-alpha",
+		"react": "19.3.0",
+		"react-dom": "19.3.0",
+		"tsdown": "0.23.0",
+		"tsx": "4.23.15",
+		"typescript": "5.9.3"
+	},
+	"overrides": {
+		"@astrojs/react": {
+			"@vitejs/plugin-react": "6.1.1"
+		}
+	},
+	"engines": {
+		"node": "^24.15.0 || >=26.0.0"
+	},
+	"allowScripts": {
+		"esbuild@0.28.2": true,
+		"workerd@1.20261006.1": true
+	}
+}
