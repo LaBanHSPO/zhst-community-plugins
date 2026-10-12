@@ -61,7 +61,7 @@ async function stopServer() {
   await exited;
   clearTimeout(killTimer);
 }
-async function checkServer(origin, label) {
+async function checkServer(origin, label, accounting) {
   server.on('error', (error) => { console.error(error); });
   const deadline = Date.now() + 45_000;
   let home;
@@ -78,6 +78,13 @@ async function checkServer(origin, label) {
   if (![401, 403].includes(denied.status)) throw new Error(`${label} private API must deny anonymous access, received ${denied.status}: ${await denied.text()}`);
   await denied.text();
   console.log(`PASS: ${label} homepage 200 and unauthenticated ERP denial ${denied.status}.`);
+  const ledger = await fetch(`${origin}/api/erp-mini/accounting/info`, {
+    headers: { 'X-EmDash-Request': '1' }, redirect: 'manual', signal: AbortSignal.timeout(10_000),
+  });
+  const expected = accounting ? 401 : 404;
+  if (ledger.status !== expected) throw new Error(`${label} accounting boundary expected ${expected}, received ${ledger.status}: ${await ledger.text()}`);
+  await ledger.text();
+  console.log(`PASS: ${label} accounting ${accounting ? 'session denial' : 'route excluded'} ${expected}.`);
 }
 try {
   const plugin = join(directory, 'zhst-community-plugins/plugins/erp-mini');
@@ -91,18 +98,20 @@ try {
   if (version !== baseline) {
     command(['install', '--save-exact', `emdash@${version}`, '--no-audit', '--no-fund'], theme);
     command(['install', '--save-dev', '--save-exact', `@emdash-cms/cloudflare@${version}`, '--no-audit', '--no-fund'], theme);
+    command(['install', '--save-exact', `@emdash-cms/auth@${version}`, '--no-audit', '--no-fund'], theme);
   }
   command(['install', '--save-exact', join(directory, pack[0].filename), '--no-audit', '--no-fund'], theme);
 
   const port = await freePort();
   const origin = `http://localhost:${port}`;
-  const env = { ...process.env, EMDASH_SITE_URL: origin, ERP_DATA_DIR: '.local', ERP_CURRENCY: 'USD',
+  const env = { ...process.env, EMDASH_SITE_URL: origin, ERP_DATA_DIR: '.local', ERP_CURRENCY: 'VND',
     HOST: '127.0.0.1', PORT: String(port), EMDASH_ENCRYPTION_KEY: `emdash_enc_v1_${randomBytes(32).toString('base64url')}`,
     WRANGLER_SEND_METRICS: 'false', CI: 'true' };
   command(['run', 'typecheck'], theme, env);
   command(['run', 'build'], theme, env);
+  command(['run', 'accounting:migrate', '--', '--settings', 'dist/accounting-settings.json'], theme, env);
   server = spawn(process.execPath, ['scripts/start.mjs'], { cwd: theme, env, stdio: ['ignore', 'inherit', 'inherit'] });
-  await checkServer(origin, 'Built Node host');
+  await checkServer(origin, 'Built Node host', true);
   await stopServer();
 
   // Synthetic identifiers are confined to this disposable copy; --local forbids remote bindings.
@@ -121,9 +130,9 @@ try {
     '--config', 'dist/server/wrangler.json', '--local', '--ip', '127.0.0.1',
     '--port', String(workerPort), '--inspector-port', '0', '--log-level', 'warn',
   ], { cwd: theme, env, stdio: ['ignore', 'inherit', 'inherit'] });
-  await checkServer(`http://127.0.0.1:${workerPort}`, 'Built local Cloudflare Worker');
-  console.log(`PASS: packed plugin, real SQLite business tests, typechecks, Node and local Worker runtime smoke; core ${version}.`);
-  console.log('Authenticated browser and deployed Cloudflare acceptance remain manual release checks. No customer upgraded.');
+  await checkServer(`http://127.0.0.1:${workerPort}`, 'Built local Cloudflare Worker', false);
+  console.log(`PASS: packed plugin, real SQLite business tests, accounting schema migration, typechecks, Node session denial and local Worker route exclusion; core ${version}.`);
+  console.log('Authenticated browser and deployed Cloudflare acceptance remain separate release checks. No customer upgraded.');
 } finally {
   await stopServer();
   await rm(directory, { recursive: true, force: true });

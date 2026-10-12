@@ -76,7 +76,7 @@ export class ErpService {
 
   async info(): Promise<Info> {
     const currency = await this.configured();
-    return { version: '0.1.0', currency, minorUnits: MINOR_UNITS[currency], pageSize: PAGE_SIZE, maxLines: MAX_LINES, maxContacts: MAX_CONTACTS };
+    return { version: '0.1.0', currency, minorUnits: MINOR_UNITS[currency], pageSize: PAGE_SIZE, maxLines: MAX_LINES, maxContacts: MAX_CONTACTS, accounting: false };
   }
 
   async get(input: unknown): Promise<RecordView<Customer | Item | Sale>> {

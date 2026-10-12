@@ -1,13 +1,13 @@
 ---
 title: "Phase 1: Storage và transport Node"
-status: todo
+status: completed
 ---
 
 # Phase 1: Storage và transport Node
 
 ## Overview
 
-Pending; dependency: đặc tả và storage design. Đây là shared prerequisite, không chạy song song với phase 2–5.
+Completed; shared prerequisite cho phases2–5. Real SQLite, captured settings, built session transport và Node/CF boundary đã kiểm chứng; evidence tổng hợp ở [plan](plan.md).
 
 Context: [storage](../../docs/accounting-storage.md), [spec](../../docs/accounting.md).
 
@@ -17,13 +17,13 @@ Một DB accounting.db riêng với schema/migrations của plugin; Node host s�
 
 ## File owners
 
-- P new: `src/accounting/model.ts`, `validation.ts`, `server.ts`, `sqlite.ts`, `http.ts`, `migrations/0001_accounting.sql`, `tests/accounting.test.ts`.
+- P new: `src/accounting/model.ts`, `store.ts`, `validation.ts`, `server.ts`, `sqlite.ts`, `http.ts`, `migrations/0001_accounting.sql`, `tests/accounting.test.ts`.
 - P new source helper `src/accounting/erp-source.ts`: read scoped existing records through injected public StorageCollection interfaces, reuse current persisted schemas/currency lock; no private CMS table access.
 - P new setup service/UI `src/accounting/service.ts`, `src/admin/accounting/setup.tsx`; admin entry hiển thị configure-book thực khi missing settings, không financial menu giả.
 - P modify: `package.json` exports/build scripts, `src/index.ts`/`src/model.ts` JSON-safe accounting capability; giữ existing routes/storage.
 - H new: `scripts/accounting-integration.mjs`, `scripts/migrate-accounting.mjs`, `src/server/accounting-resources.ts`, `src/server/accounting-endpoint.ts`.
 - H modify: Node `astro.config.mjs`, `package.json`/lockfile, settings/start lifecycle nếu cần; CF config giữ accounting false, không import Node integration.
-- Những tên new là contract đề xuất, không claim đang tồn tại.
+- Owners trên đã triển khai; schema/build ownership theo executable source và manifests.
 
 ## Implementation steps
 
@@ -36,12 +36,12 @@ Một DB accounting.db riêng với schema/migrations của plugin; Node host s�
 
 ## Todo và gates
 
-- [ ] Real temporary SQLite migrations: fresh/re-run/checksum/newer schema/interrupted failure, không corrupt versions.
-- [ ] Driver fault injection rollback + hai independent connection writer lock; path isolation/close-reopen.
-- [ ] Build target A, đổi ERP_DATA_DIR/currency/origin sang B rồi gọi migration: reject trước file access, DB ở B không được tạo; manifest missing/cwd wrong fail; valid captured target vẫn migrate đúng.
-- [ ] Synthetic production host: anonymous401, insufficient permission403, forged actor/body/CSRF/method/oversize denied trước resource/mutation; enabled info trả VND.
-- [ ] Build và local CF runtime giữ CRM/sales, không import node:sqlite hoặc Node endpoint; disabled accounting không fake success.
-- [ ] Node supported engine matrix kiểm API DatabaseSync trên baseline24.15+ và Node26; chỉ report runtime thực sự chạy.
+- [x] Real temporary SQLite migrations: fresh/re-run/checksum/newer schema/interrupted failure, không corrupt versions.
+- [x] Driver fault injection rollback + hai independent connection writer lock; path isolation/close-reopen.
+- [x] Build target A, đổi ERP_DATA_DIR/currency/origin sang B rồi gọi migration: reject trước file access, DB ở B không được tạo; manifest missing/cwd wrong fail; valid captured target vẫn migrate đúng.
+- [x] Synthetic production host: anonymous401, insufficient permission403, forged actor/body/CSRF/method/oversize denied trước resource/mutation; enabled info trả VND.
+- [x] Build và local CF runtime giữ CRM/sales, không import node:sqlite hoặc Node endpoint; disabled accounting không fake success.
+- [x] Node supported engine matrix kiểm API DatabaseSync trên baseline24.15+ và Node26; chỉ report runtime thực sự chạy.
 
 ## Verification commands và smoke
 

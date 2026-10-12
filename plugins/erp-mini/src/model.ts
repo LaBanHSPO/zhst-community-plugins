@@ -70,7 +70,7 @@ export interface ListPage<T> { items: ListEntry<T>[]; cursor?: string; hasMore: 
 export type Entity = 'customers' | 'items' | 'quotes' | 'orders';
 export type Action = 'submit' | 'accept' | 'convert' | 'cancel-quote' | 'fulfill-order' | 'cancel-order';
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
-export interface Info { version: '0.1.0'; currency: Currency; minorUnits: number; pageSize: 25; maxLines: 50; maxContacts: 10 }
+export interface Info { version: '0.1.0'; currency: Currency; minorUnits: number; pageSize: 25; maxLines: 50; maxContacts: 10; accounting: boolean }
 export interface CustomerInput extends Contact { id: string; revision: string | null; code: string; address: string; contacts: Contact[]; active: boolean }
 export interface ItemInput { id: string; revision: string | null; code: string; name: string; unit: string; priceMinor: number; active: boolean }
 export interface QuoteInput { id: string; revision: string | null; reference: string; customerId: string; contact?: Contact; lines: { itemId: string; quantity: number }[]; validUntil: string; notes: string }

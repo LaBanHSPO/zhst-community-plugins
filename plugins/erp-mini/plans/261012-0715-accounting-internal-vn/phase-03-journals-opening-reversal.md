@@ -1,13 +1,13 @@
 ---
 title: "Phase 3: Bút toán, đầu kỳ và đảo"
-status: todo
+status: completed
 ---
 
 # Phase 3: Bút toán, đầu kỳ và đảo
 
 ## Context / status
 
-Pending; depends phase2. [Spec §3.3/3.5, B01/B04–B08/B10/B16/B18/B20](../../docs/accounting.md).
+Completed sau phase2. [Spec §3.3/3.5, B01/B04–B08/B10/B16/B18/B20](../../docs/accounting.md), [actual QA evidence](plan.md).
 
 ## File owners
 
@@ -25,11 +25,11 @@ P modify accounting service/model/validation/sqlite/http/tests; new `src/admin/a
 
 ## Todo / verification
 
-- [ ] B01 draft zero ledger effect; B04 opening cân bằng và không tạo revenue.
-- [ ] B05 invalid journal; B06 stale draft; B07 replay/lost response; B08 changed payload; B10 injected fault rollback giữ draft trước lệnh.
-- [ ] B16 close/reopen giữ journal/receipt; B18 snapshots giữ qua master edits.
-- [ ] B20 immutable header/lines via repository và SQL trigger, duplicate reversal/reversal-of-reversal reject; disabled original exact reverse vẫn thành công.
-- [ ] Real browser journal/opening/Post/Reverse và conflict/ambiguous failure recovery; observe stored ledger state, không chỉ mock response.
+- [x] B01 draft zero ledger effect; B04 opening cân bằng và không tạo revenue.
+- [x] B05 invalid journal; B06 stale draft; B07 replay/lost response; B08 changed payload; B10 injected fault rollback giữ draft trước lệnh.
+- [x] B16 close/reopen giữ journal/receipt; B18 snapshots giữ qua master edits.
+- [x] B20 immutable header/lines via repository và SQL trigger, duplicate reversal/reversal-of-reversal reject; disabled original exact reverse vẫn thành công.
+- [x] Real browser journal/opening/Post/Reverse và conflict/ambiguous failure recovery; observe stored ledger state, không chỉ mock response.
 
 ## Gates / risk / next
 

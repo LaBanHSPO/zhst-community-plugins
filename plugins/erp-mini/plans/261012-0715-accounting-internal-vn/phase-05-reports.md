@@ -1,13 +1,13 @@
 ---
 title: "Phase 5: Báo cáo và đối chiếu"
-status: todo
+status: completed
 ---
 
 # Phase 5: Báo cáo và đối chiếu
 
 ## Context / status
 
-Pending; depends phase4. [Spec §4, B02–B04/B13/B17](../../docs/accounting.md), [storage snapshot algorithm](../../docs/accounting-storage.md).
+Completed sau phase4. [Spec §4, B02–B04/B13/B17](../../docs/accounting.md), [storage/query owners](../../docs/accounting-storage.md), [actual QA evidence](plan.md).
 
 ## File owners
 
@@ -24,12 +24,12 @@ P new `src/accounting/reports.ts`, `src/admin/accounting/reports.tsx`, `tests/ac
 
 ## Todo / verification
 
-- [ ] B13 multiple pages stable through new post/backdated post/reversal/master rename; refreshed run changes correctly.
-- [ ] B17 synthetic accumulated total >Number.MAX_SAFE_INTEGER exact decimal strings; overflow not floating/rounded.
-- [ ] AR/AP source totals match control ledger before/after partial payments, reversals, opening and historical dates.
-- [ ] Trial balance full-book totals cân cho opening/movements/closing; limited account report không falsely require full-book balance.
-- [ ] Date boundary/before source/after reversal; draft/cancelled excluded; no reclassify old lines via changed masters.
-- [ ] Actual browser all five report surfaces, pagination beyond25, drill-down, keyboard/mobile, auth denial.
+- [x] B13 multiple pages stable through new post/backdated post/reversal/master rename; refreshed run changes correctly.
+- [x] B17 synthetic accumulated total >Number.MAX_SAFE_INTEGER exact decimal strings; overflow not floating/rounded.
+- [x] AR/AP source totals match control ledger before/after partial payments, reversals, opening and historical dates.
+- [x] Trial balance full-book totals cân cho opening/movements/closing; limited account report không falsely require full-book balance.
+- [x] Date boundary/before source/after reversal; draft/cancelled excluded; no reclassify old lines via changed masters.
+- [x] Actual browser all five report surfaces, pagination beyond25, drill-down, keyboard/mobile, auth denial.
 
 ## Gates / risk / next
 

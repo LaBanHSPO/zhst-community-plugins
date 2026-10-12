@@ -6,7 +6,7 @@ This guide is for ERP developers creating an independent customer-specific ERP m
 
 One installation is one business and its administrators. Keep its hostname, database, media, sessions, secrets and backups separate. Forked source is not data isolation by itself. Never put two customers into the same database and rely on a browser-provided `tenantId`, a different plugin name, hidden menu items or a filtered frontend.
 
-Choose the business currency before entering records. The starter supports USD/EUR/GBP (two minor digits) and VND/JPY (zero); it rejects reconfiguring an existing installation into another currency. Document the customer's timezone and remember that quotation expiry currently uses UTC dates.
+Choose the business currency before entering CRM/sales records. That workflow supports USD/EUR/GBP (two minor digits) and VND/JPY (zero) and rejects currency reinterpretation. Internal accounting requires VND on the paired Node host; its immutable book setup and separate database do not convert existing sales data. Document the customer's timezone and remember that quotation expiry uses UTC dates.
 
 For each requested customization, record:
 
@@ -35,7 +35,7 @@ Do not call a feature accounting, tax-compliant invoicing or stock valuation wit
 | Role Permission Manager | EmDash `plugins:manage` | Admin-only baseline; do not claim salesperson-level permissions |
 | App migrations / patches | Reviewed versioned plugin-data migration in a fork | Core and plugin data versions are separate; changing a seed is not migration |
 
-Reference behavior comes from ERPNext's [Quotation](https://docs.frappe.io/erpnext/quotation) and [Sales Order](https://docs.frappe.io/erpnext/sales-order) documentation. Terminology is not full feature parity. The independent implementation intentionally omits ERPNext taxes, stock, accounting, pricing rules, partial fulfillment, amendments, invoicing and email delivery.
+Reference behavior comes from ERPNext's [Quotation](https://docs.frappe.io/erpnext/quotation) and [Sales Order](https://docs.frappe.io/erpnext/sales-order) documentation. Terminology is not full feature parity. CRM/sales intentionally omits ERPNext taxes, stock, pricing rules, partial fulfillment, amendments, invoicing and email delivery. The independent [internal accounting contract](accounting.md) adds manual Node/VND bookkeeping, not automatic sales posting or statutory ERPNext accounting parity.
 
 ## 3. Fork only the extension layer
 
@@ -68,7 +68,7 @@ Example requirement: a customer needs a purchase-order reference on a quotation,
 6. Add behavior tests: allowed draft save, invalid/overlong input rejection, frozen field after submission, stale-edit rejection, old-record migration and failure recovery. Test outputs and persistence, not source-text snapshots.
 7. Rebuild the plugin and theme, then perform the real browser workflow using synthetic data. Include the field in both the quotation and resulting order review.
 
-Use the same vertical-slice method for another CRM/sales customization. A new stock ledger or accounting module is not a field extension: it needs a separate consistency and legal/operational design. EmDash storage compare-and-set is **single-record atomicity**. `putMany()` is not a cross-record transaction, especially on D1; do not distribute financial invariants across independent writes and label them transactional.
+Use the same vertical-slice method for another CRM/sales customization. Accounting is not a field extension: the existing [separate SQLite design and operations](accounting-storage.md) owns its financial consistency boundary. EmDash storage compare-and-set is **single-record atomicity**; `putMany()` is not a cross-record transaction, especially on D1. Do not extend accounting by distributing financial invariants across independent CRM writes. A new stock ledger still needs its own reviewed consistency and operational/legal design.
 
 ## 5. Use AI as a supervised development tool
 
@@ -96,7 +96,7 @@ Before implementing an importer, produce a mapping and reconciliation sheet:
 | Item Price / currency | One configured currency; parse exact minor units; reject excess precision and unsupported currencies |
 | Quotation rows | Resolve current masters; do not silently import historical prices as today's item prices |
 | Submitted historical documents | Preserve their original legal/history record elsewhere unless a separately reviewed historical-import contract exists |
-| Sales invoices, payments, stock and taxes | Out of scope; do not transform them into a quotation and claim a migrated ledger |
+| Historical sales invoices, payments, stock and taxes | No historical accounting-import contract; do not transform these into quotations or manual entries and claim a migrated statutory ledger |
 
 Test dry-run rejection reports, deterministic source-ID mapping, interrupted resume, repeat-run behavior, amount reconciliation and rollback using synthetic or authorized redacted input. Keep real extracts in restricted storage, never public Git, CI artifacts or AI prompts. Archive the source ERP read-only until the customer accepts the reconciliation.
 

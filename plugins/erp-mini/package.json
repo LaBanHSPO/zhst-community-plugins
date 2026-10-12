@@ -1,17 +1,19 @@
 {
   "name": "@zerohost/plugin-erp-mini",
   "version": "0.1.0",
-  "description": "Private CRM and sales workflows for independent EmDash installations",
+  "description": "Private CRM, sales and optional internal VND bookkeeping for independent EmDash installations",
   "type": "module",
   "license": "MIT",
   "engines": { "node": "^24.15.0 || >=26.0.0" },
   "exports": {
     ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" },
-    "./admin": "./src/admin/index.tsx"
+    "./admin": "./src/admin/index.tsx",
+    "./accounting": { "types": "./dist/accounting/server.d.mts", "import": "./dist/accounting/server.mjs" },
+    "./accounting-node": { "types": "./dist/accounting/sqlite.d.mts", "import": "./dist/accounting/sqlite.mjs" }
   },
-  "files": ["dist", "src", "docs", "AGENTS.md", "LICENSE", "README.md"],
+  "files": ["dist", "src", "migrations", "docs", "AGENTS.md", "LICENSE", "README.md"],
   "scripts": {
-    "build": "tsdown src/index.ts --format esm --dts --clean",
+    "build": "tsdown src/index.ts src/accounting/server.ts src/accounting/sqlite.ts --format esm --dts --clean",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "compatibility": "node scripts/compatibility.mjs",

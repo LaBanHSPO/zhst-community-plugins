@@ -1,6 +1,6 @@
-# ERP mini — CRM and sales for EmDash
+# ERP mini — CRM, sales and internal VND bookkeeping for EmDash
 
-A native EmDash plugin for **customers and contacts → items/services → quotations → sales orders**. It implements a small, independent sales workflow inspired by ERPNext. It does not run Frappe apps, import Python DocTypes, connect to an ERPNext server, or implement accounting, tax, stock valuation, payments or payroll.
+A native EmDash plugin for **customers and contacts → items/services → quotations → sales orders**, with separate **internal VND bookkeeping on the paired Node host**. It implements independent workflows inspired by ERPNext; it does not run Frappe apps, import Python DocTypes or connect to an ERPNext server. Statutory accounting, tax, stock valuation and payroll remain outside scope.
 
 Use it for a separately operated business installation, not as a tenant selector in one shared database. The browser UI lives inside EmDash's authenticated admin shell at `/_emdash/admin/plugins/erp-mini/workspace`. All operations require an EmDash administrator. Native plugin code has the host's authority; a capability declaration is not a security sandbox.
 
@@ -42,7 +42,7 @@ A submitted quotation cannot be edited. Cancel an unconverted quotation and crea
 
 ## Rules that customer forks must preserve
 
-- **Private records:** plugin storage, never a public CMS collection or unauthenticated Astro endpoint. Every route requires `plugins:manage`; the UI is not the authorization boundary. Editors, authors and subscribers cannot operate ERP mini.
+- **Private records:** CRM/sales use plugin storage; accounting uses its separate Node database. Neither is a public CMS collection or unauthenticated endpoint. Every route requires `plugins:manage`; the UI is not the authorization boundary. Editors, authors and subscribers cannot operate ERP mini.
 - **One customer installation:** separate database, uploads/bucket, session storage, hostname and secrets. A supplied `tenantId` cannot switch installations. Sharing one database between customer forks is unsupported.
 - **One business currency:** USD, EUR, GBP, VND or JPY; choose before first use. USD is the default. The saved configuration prevents an environment change from reinterpreting existing prices. Currency conversion requires a reviewed data migration, not changing a symbol.
 - **Exact money:** prices are nonnegative integer minor units, capped at 1,000,000,000,000; quantities are positive integers up to 1,000,000. Server-checked multiplication and addition must remain safe integers. No taxes, discounts, foreign exchange or fractional quantities are implied.
@@ -50,8 +50,8 @@ A submitted quotation cannot be edited. Cancel an unconverted quotation and crea
 - **No lost updates:** creates use a client UUID and absent-record compare-and-set; edits/actions require the last returned opaque revision. A conflict retains the user's form. Reload intentionally and reapply the change; never remove the revision or silently retry a stale mutation.
 - **Historical truth:** submitted customer/contact/item/price snapshots do not follow later master edits or archives. Archiving does not erase history. No hard-delete API exists.
 - **Stable contact selection:** `save-quote` accepts the displayed contact's `{ name, email, phone }` snapshot, not an array index. The server matches it against that customer's current contacts. Reordering cannot change the recipient; a changed/removed contact returns a conflict until the operator explicitly reloads/reselects.
-- **Atomic conversion:** quotation and its optional order are one `sales` aggregate. Cross-record storage calls are not a transaction; this package is not a general financial ledger.
-- **Versioned data:** values carry `schemaVersion`. Unknown versions are rejected rather than overwritten by an older fork. Metadata comes from the authenticated actor and server clock, not user input. Timestamps are not a full append-only audit log.
+- **Atomic sales conversion:** quotation and its optional order are one `sales` aggregate. Cross-record EmDash storage calls are not a financial transaction; accounting uses its separate SQLite transaction owner.
+- **Versioned data:** unknown CRM/sales record versions and accounting schema versions are rejected rather than overwritten by older code. Metadata comes from the authenticated actor and server clock, not user input. CRM/sales timestamps are not a full append-only audit log; accounting has its own immutable audit owner.
 
 The executable contract is in [`src/model.ts`](src/model.ts), [`src/validation.ts`](src/validation.ts), [`src/service.ts`](src/service.ts) and [`src/index.ts`](src/index.ts). Read those before changing a business rule.
 
@@ -85,9 +85,11 @@ Read the [porting and customer-fork guide](docs/porting.md), then the local [AI 
 
 The community root [contribution guide](../../CONTRIBUTING.md) owns fork/branch/PR review. A customer-only customization can remain in that customer's private fork; generic improvements should be submitted upstream without customer records, credentials or proprietary rules.
 
-### Internal bookkeeping design (not implemented)
+### Internal VND bookkeeping
 
-The [internal VND bookkeeping specification](docs/accounting.md), [atomic storage design](docs/accounting-storage.md), and [implementation plan](plans/261012-0715-accounting-internal-vn/plan.md) describe a proposed double-entry ledger with receivables/payables for small businesses. They do not add accounting to the current package. The design selects a separate Node SQLite accounting database, permissioned EmDash sessions and manual posting; it does not claim statutory Vietnamese accounting, tax compliance or Cloudflare accounting support.
+The [business contract](docs/accounting.md) owns the accepted bookkeeping requirements and exclusions; the [storage and operations guide](docs/accounting-storage.md) owns explicit migration, book setup, financial recovery and paired backup/rollback decisions. Accounting is Node-only, uses a separate `accounting.db`, and never automatically posts sales orders. Cloudflare continues to provide CRM/sales without accounting.
+
+Public entry points are declared in [`package.json`](package.json): `./accounting` is the pure domain/HTTP export; `./accounting-node` owns the Node SQLite driver and checksummed schema migrations. The paired host owns authenticated routes and resource lifecycle. Enablement is not book setup: schema migration precedes an administrator's explicit immutable start-date setup, accounts and opening entries. No chart of accounts or business balances are seeded automatically, and VND support is not Vietnamese legal certification.
 
 ## Pack and distribute an approved native plugin
 
@@ -107,7 +109,7 @@ The sibling `file:` dependency is for development. A deployed release uses a rev
 
 Follow [core compatibility and release operations](docs/compatibility.md). Daily CI checks a pinned release and npm's current `emdash` release. A passing candidate does not update a customer. Dependabot opens reviewable dependency PRs; nothing auto-merges or deploys.
 
-Before an upgrade, take a consistent database and media backup, keep the old artifact, and restore the backup into an isolated installation to prove recovery. EmDash can apply core migrations on the **first request**, before a human visits the dashboard. Database migrations are not undone by rolling back a package. Restore a compatible database/artifact pair; do not start older code against newer data and hope for compatibility.
+Before an upgrade, follow the [paired backup and rollback procedure](docs/accounting-storage.md#7-currency-migration-và-vận-hành), keep the previous artifact, and prove recovery in an isolated installation. EmDash can apply core migrations on the **first request**, before a human visits the dashboard. Database migrations are not undone by rolling back a package. Restore a compatible database/artifact pair; do not start older code against newer data.
 
 Removing the plugin registration or deactivating it removes access to its pages/routes but retains stored business records. Uninstall is not deletion, archival or a backup. Destructive erasure and retention policies need an explicit operator-approved procedure and customer authorization.
 

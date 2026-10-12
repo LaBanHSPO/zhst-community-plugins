@@ -1,6 +1,6 @@
 # Đặc tả accounting nội bộ — ERP mini
 
-Trạng thái: **thiết kế để triển khai, chưa có module accounting trong runtime**. Ngày: 2026-10-12. Đọc cùng [thiết kế lưu trữ](accounting-storage.md) và [kế hoạch triển khai](../plans/261012-0715-accounting-internal-vn/plan.md).
+Contract nghiệp vụ cho module accounting nội bộ Node/VND đã triển khai. Đọc cùng [lưu trữ và vận hành](accounting-storage.md); nguồn thực thi nằm trong [`src/accounting/`](../src/accounting/) và UI [`src/admin/accounting/`](../src/admin/accounting/). Các tiêu chí B01–B21 bên dưới là yêu cầu chấp nhận, không phải tuyên bố tất cả cổng runtime/release đã được kiểm tra.
 
 ## 1. Outcome và nguồn yêu cầu
 
@@ -8,9 +8,9 @@ Người dùng đã xác nhận môi trường CRM/sales chạy OK; đối tư�
 
 Outcome: người quản trị ghi nhận nghiệp vụ khi phát sinh, thu/trả tiền từng phần, sửa sai bằng chứng từ đảo; đối chiếu được nhật ký, sổ cái, bảng cân đối phát sinh, tiền và công nợ trên cùng dữ liệu đã ghi sổ.
 
-Baseline: [README](../README.md) và `src/model.ts`, `src/service.ts`, `src/index.ts` hiện chỉ có customers/items/quotations/orders. Quotation, accepted/fulfilled order không chứng minh doanh thu, thanh toán hay ghi sổ.
+CRM/sales owners: [`src/model.ts`](../src/model.ts), [`src/service.ts`](../src/service.ts), [`src/index.ts`](../src/index.ts). Accounting có owners riêng trong [`src/accounting/`](../src/accounting/); quotation và accepted/fulfilled order không tự chứng minh doanh thu, thanh toán hay ghi sổ.
 
-Các lựa chọn còn lại bên dưới là **quyết định thiết kế đề xuất**, không phải quy định kế toán Việt Nam hoặc yêu cầu pháp lý đã được người dùng xác nhận. Không có baseline về số chứng từ, thời gian nhập liệu hoặc capacity; không bịa mục tiêu hiệu năng.
+Các lựa chọn bên dưới là **quyết định phạm vi accounting nội bộ**, không phải quy định kế toán Việt Nam hoặc chứng nhận pháp lý. Không có baseline về số chứng từ, thời gian nhập liệu hoặc capacity; không bịa mục tiêu hiệu năng.
 
 ## 2. Boundary
 
@@ -26,7 +26,7 @@ Các lựa chọn còn lại bên dưới là **quyết định thiết kế đ�
 
 ### 3.1. Thiết lập sổ và tài khoản
 
-- Chọn ngày bắt đầu sổ `startDate` trên installation accounting mới; sau bút toán đầu tiên không đổi ngày/currency qua settings. Muốn thay đổi phải có kế hoạch migration.
+- Chọn ngày bắt đầu sổ `startDate` một lần trên installation accounting mới; không đổi ngày/currency qua settings, kể cả trước bút toán đầu tiên. Muốn thay đổi phải có kế hoạch migration riêng.
 - Tài khoản có ID ổn định, code duy nhất sau chuẩn hóa, tên, root type asset/liability/equity/income/expense, group/ledger, parent, active và purpose general/cash/bank/receivable/payable.
 - Group không nhận bút toán; parent phải là group cùng root type; không được tạo chu kỳ cây. Không có parent chuyển root ngầm.
 - Purpose cash/bank/receivable chỉ cho ledger root asset; payable chỉ cho ledger root liability. Group chỉ purpose general. Không cho purpose sai root khiến báo cáo tiền/công nợ bị phân loại sai.

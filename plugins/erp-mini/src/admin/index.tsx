@@ -4,6 +4,7 @@ import type { Customer, Entity, Info, Item, RecordView, Sale } from '../model.js
 import { money, request } from './api.js';
 import { CustomerEditor, ItemEditor } from './masters.js';
 import { QuoteEditor, SaleDetail } from './sales.js';
+import { AccountingWorkspace } from './accounting/index.js';
 import { Failure, Paged, Search, useMutation } from './shared.js';
 import type { BlockState } from './shared.js';
 import './styles.css';
@@ -16,6 +17,7 @@ const tabs: { entity: Entity; label: string; singular: string; description: stri
 ];
 
 type BusinessRecord = Customer | Item | Sale;
+type WorkspaceSection = Entity | 'accounting';
 type Selection = { entity: Entity; id: string; creating: boolean; key: string };
 
 function RecordPanel({ selection, info, onBlock, onLoading, allowLeave, onClose, onChanged, onRelated }: {
@@ -104,9 +106,9 @@ function RecordList({ entity, info, refresh, onOpen, onCreate }: { entity: Entit
 }
 
 function Workspace() {
-  const [tab, setTab] = useState<Entity>(() => {
+  const [tab, setTab] = useState<WorkspaceSection>(() => {
     const value = typeof window === 'undefined' ? null : new URL(window.location.href).searchParams.get('erpTab');
-    return tabs.find((candidate) => candidate.entity === value)?.entity ?? 'customers';
+    return value === 'accounting' ? 'accounting' : tabs.find((candidate) => candidate.entity === value)?.entity ?? 'customers';
   });
   const [info, setInfo] = useState<Info>();
   const [error, setError] = useState<unknown>(null);
@@ -148,7 +150,7 @@ function Workspace() {
       currentUrl.current = window.location.href;
       currentHistoryState.current = window.history.state;
       const value = new URL(window.location.href).searchParams.get('erpTab');
-      setTab(tabs.find((candidate) => candidate.entity === value)?.entity ?? 'customers');
+      setTab(value === 'accounting' ? 'accounting' : tabs.find((candidate) => candidate.entity === value)?.entity ?? 'customers');
       setSelection(undefined);
       block.current = { dirty: false, pending: false };
     }
@@ -157,7 +159,7 @@ function Workspace() {
     window.addEventListener('popstate', popstate, true);
     return () => { window.removeEventListener('beforeunload', beforeUnload); document.removeEventListener('click', outsideNavigation, true); window.removeEventListener('popstate', popstate, true); };
   }, [allowLeave]);
-  function navigate(entity: Entity) {
+  function navigate(entity: WorkspaceSection) {
     const url = new URL(window.location.href);
     url.searchParams.set('erpTab', entity);
     window.history.pushState(window.history.state, '', url);
@@ -171,22 +173,23 @@ function Workspace() {
     navigate(entity);
     setSelection({ entity, id, creating: false, key: crypto.randomUUID() });
   }
+  const workspaceTabs: { entity: WorkspaceSection; label: string }[] = info?.accounting ? [...tabs, { entity: 'accounting', label: 'Accounting' }] : tabs;
   return <div className="erp-mini" ref={root}>
     <header className="erp-header"><div><p className="erp-eyebrow">CRM & sales</p><h1>ERP mini</h1><p>From your first customer to a fulfilled order.</p></div>{info && <span className="erp-currency">{info.currency} · installation currency</span>}</header>
-    <nav className="erp-tabs" aria-label="ERP workspace sections">{tabs.map((item) => <a key={item.entity} data-erp-tab="true" href={`?erpTab=${item.entity}`} aria-current={tab === item.entity ? 'page' : undefined} onClick={(event) => {
+    <nav className="erp-tabs" aria-label="ERP workspace sections">{workspaceTabs.map((item) => <a key={item.entity} data-erp-tab="true" href={`?erpTab=${item.entity}`} aria-current={tab === item.entity ? 'page' : undefined} onClick={(event) => {
       if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
       if (allowLeave()) navigate(item.entity);
     }}>{item.label}</a>)}</nav>
     <Failure error={error} retry={() => setRetry((value) => value + 1)} />
     {!info && !error && <p role="status">Loading workspace configuration…</p>}
-    {info && (selection ? <RecordPanel key={selection.key} selection={selection} info={info} onBlock={onBlock} onLoading={onLoading} allowLeave={allowLeave} onChanged={() => setRefresh((value) => value + 1)} onRelated={openRelated} onClose={() => {
+    {info && (tab === 'accounting' ? info.accounting ? <AccountingWorkspace onBlock={onBlock} onLoading={onLoading} allowLeave={allowLeave} /> : <p className="erp-notice">Accounting requires the paired Node host and a VND installation. It is unavailable on this host; CRM and sales remain available.</p> : selection ? <RecordPanel key={selection.key} selection={selection} info={info} onBlock={onBlock} onLoading={onLoading} allowLeave={allowLeave} onChanged={() => setRefresh((value) => value + 1)} onRelated={openRelated} onClose={() => {
       if (!allowLeave()) return;
       setSelection(undefined);
       block.current = { dirty: false, pending: false };
       window.requestAnimationFrame(() => root.current?.querySelector<HTMLAnchorElement>('[aria-current="page"]')?.focus());
     }} /> : <RecordList key={tab} entity={tab} info={info} refresh={refresh} onOpen={(id) => setSelection({ entity: tab, id, creating: false, key: crypto.randomUUID() })} onCreate={() => setSelection({ entity: tab, id: crypto.randomUUID(), creating: true, key: crypto.randomUUID() })} />)}
-    <footer className="erp-footer">Private administrator workspace · CRM and sales only. No accounting, tax, payment or stock ledger.</footer>
+    <footer className="erp-footer">Private administrator workspace · {info?.accounting ? 'Internal VND bookkeeping; no statutory accounting, tax or inventory ledger.' : 'CRM and sales. Accounting is unavailable on this host.'}</footer>
   </div>;
 }
 

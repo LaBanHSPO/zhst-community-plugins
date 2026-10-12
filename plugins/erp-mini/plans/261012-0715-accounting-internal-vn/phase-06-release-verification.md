@@ -1,13 +1,13 @@
 ---
 title: "Phase 6: Packed artifact, compatibility và vận hành"
-status: todo
+status: completed
 ---
 
 # Phase 6: Packed artifact, compatibility và vận hành
 
 ## Context / status
 
-Pending; depends all phases1–5. [Full spec B01–B21](../../docs/accounting.md), [compatibility](../../docs/compatibility.md), [storage migration/backup](../../docs/accounting-storage.md).
+Completed sau phases1–5: packed Node/browser, baseline compatibility, local packed CF và independent paired restore đã pass. [Full spec B01–B21](../../docs/accounting.md), [compatibility](../../docs/compatibility.md), [storage migration/backup](../../docs/accounting-storage.md), [exact QA evidence và limits](plan.md). Không có publication/deploy authorization.
 
 ## Scope / file owners
 
@@ -25,10 +25,10 @@ Review all changed P/H callsites/exports/docs. Update existing README, porting/c
 
 ## Todo / acceptance
 
-- [ ] B01–B21 all executed with actual path evidence; environmental blockers explicit, no fake completion from compiler or mocks.
-- [ ] Packed Node host works without source symlink; CF CRM/sales no Node accounting import/fallback.
-- [ ] Restore amounts/receipts/currency, artifact+schema pair rollback documented; removing route retains data.
-- [ ] Docs describe implemented behavior, commands and support boundary; internal bookkeeping not tax/statutory certification.
+- [x] B01–B21 all executed with actual path evidence; environmental limits explicit, no fake completion from compiler or mocks.
+- [x] Packed Node host works without source symlink; CF CRM/sales no Node accounting import/fallback.
+- [x] Restore amounts/receipts/currency, artifact+schema pair rollback documented; removing route retains data.
+- [x] Docs describe implemented behavior, commands and support boundary; internal bookkeeping not tax/statutory certification.
 
 ## Exit / risk
 

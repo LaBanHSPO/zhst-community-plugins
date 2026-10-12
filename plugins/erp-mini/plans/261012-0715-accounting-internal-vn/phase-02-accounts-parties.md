@@ -1,13 +1,13 @@
 ---
 title: "Phase 2: Tài khoản và đối tượng công nợ"
-status: todo
+status: completed
 ---
 
 # Phase 2: Tài khoản và đối tượng công nợ
 
 ## Context / status
 
-Pending; depends phase1. [Spec §3.1–3.2](../../docs/accounting.md), [storage](../../docs/accounting-storage.md).
+Completed sau phase1. [Spec §3.1–3.2](../../docs/accounting.md), [storage](../../docs/accounting-storage.md), [actual QA evidence](plan.md).
 
 ## Requirements
 
@@ -27,11 +27,11 @@ P modify `src/accounting/service.ts` từ phase1, new `src/admin/accounting/mast
 
 ## Todo / verification
 
-- [ ] Account cycle/sai parent/group/posting purpose invalid không lưu; code collisions và stale revision đúng một winner.
-- [ ] Party kind/source link uniqueness; unauthorized CRM selection không linked; archived source snapshot không rewrite lịch sử.
-- [ ] Independent installations không share accounts/parties/settings.
-- [ ] Browser thực: tạo cash/bank/AR/AP/revenue/expense/equity accounts, customer/supplier; duplicate/stale form, keyboard focus và narrow screen.
-- [ ] Chạy focused accounting tests, P check, H typecheck/build; exercise built master UI với synthetic auth/DB.
+- [x] Account cycle/sai parent/group/posting purpose invalid không lưu; code collisions và stale revision đúng một winner.
+- [x] Party kind/source link uniqueness; unauthorized CRM selection không linked; archived source snapshot không rewrite lịch sử.
+- [x] Independent installations không share accounts/parties/settings.
+- [x] Browser thực: tạo cash/bank/AR/AP/revenue/expense/equity accounts, customer/supplier; duplicate/stale form, keyboard focus và narrow screen.
+- [x] Chạy focused accounting tests, P check, H typecheck/build; exercise built master UI với synthetic auth/DB.
 
 ## Success / risk / next
 

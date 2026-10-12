@@ -1,13 +1,13 @@
 ---
 title: "Phase 4: Thu/chi và phân bổ"
-status: todo
+status: completed
 ---
 
 # Phase 4: Thu/chi và phân bổ
 
 ## Context / status
 
-Pending; depends phase3. [Spec §3.4–3.5, B02/B03/B09/B11/B12/B14/B19](../../docs/accounting.md).
+Completed sau phase3. [Spec §3.4–3.5, B02/B03/B09/B11/B12/B14/B19/B21](../../docs/accounting.md), [actual QA evidence](plan.md).
 
 ## File owners
 
@@ -24,13 +24,13 @@ P accounting model/validation/service/sqlite/http, new `src/admin/accounting/set
 
 ## Todo / verification
 
-- [ ] B02 AR1m/receipt600k→400k; B03 AP800k/payment300k→500k.
-- [ ] B09 hai independent writer connections/processes tranh 400k với hai300k: chỉ một winner; grouped repeated-source inputs không vượt nợ.
-- [ ] B11 source reversal denied khi còn settlement; B12 receipt reversal restores debt rồi source reversal zero; B21 generic allocation reversal release và mixed incoming/outgoing guard atomic, đủ audit/history.
-- [ ] B14 allocation đầu tiên trước source, generic/payment/reverse trước activity gần nhất rejected; same-day hợp lệ.
-- [ ] B19 wrong party/account/overpayment và unmatched amount rollback cả command; fault ở giữa allocations không leak money lines/audit/receipt.
-- [ ] Actual browser customer receipt và supplier payment từng phần, reverse order đúng, lost-response recovery; restart kiểm amounts.
+- [x] B02 AR1m/receipt600k→400k; B03 AP800k/payment300k→500k.
+- [x] B09 hai independent writer connections/processes tranh 400k với hai300k: chỉ một winner; grouped repeated-source inputs không vượt nợ.
+- [x] B11 source reversal denied khi còn settlement; B12 receipt reversal restores debt rồi source reversal zero; B21 generic allocation reversal release và mixed incoming/outgoing guard atomic, đủ audit/history.
+- [x] B14 allocation đầu tiên trước source, generic/payment/reverse trước activity gần nhất rejected; same-day hợp lệ.
+- [x] B19 wrong party/account/overpayment và unmatched amount rollback cả command; fault ở giữa allocations không leak money lines/audit/receipt.
+- [x] Actual browser customer receipt và supplier payment từng phần, reverse order đúng, lost-response recovery; restart kiểm amounts.
 
 ## Gates / risk / next
 
-Focused tests + P check + H typecheck/build, real built host flow. Date fence là đề xuất đảm bảo lịch sử nhất quán, không statutory period lock. Phase5 phải filter allocations/reversals theo both sequence và postingDate; không dùng latest remaining làm report quá khứ.
+Focused tests + P check + H typecheck/build, real built host flow đã pass. Date fence là ràng buộc lịch sử nội bộ đã triển khai, không statutory period lock. Phase5 filter allocations/reversals theo both sequence và postingDate; không dùng latest remaining làm report quá khứ.
