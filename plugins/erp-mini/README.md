@@ -85,6 +85,10 @@ Read the [porting and customer-fork guide](docs/porting.md), then the local [AI 
 
 The community root [contribution guide](../../CONTRIBUTING.md) owns fork/branch/PR review. A customer-only customization can remain in that customer's private fork; generic improvements should be submitted upstream without customer records, credentials or proprietary rules.
 
+### Internal bookkeeping design (not implemented)
+
+The [internal VND bookkeeping specification](docs/accounting.md), [atomic storage design](docs/accounting-storage.md), and [implementation plan](plans/261012-0715-accounting-internal-vn/plan.md) describe a proposed double-entry ledger with receivables/payables for small businesses. They do not add accounting to the current package. The design selects a separate Node SQLite accounting database, permissioned EmDash sessions and manual posting; it does not claim statutory Vietnamese accounting, tax compliance or Cloudflare accounting support.
+
 ## Pack and distribute an approved native plugin
 
 After the source and dependency review, run from this package:
