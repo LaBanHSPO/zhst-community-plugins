@@ -11,7 +11,7 @@ The matrix compares the checked-in baseline with npm's current `emdash` release.
 1. Copies both projects into a disposable sibling-clone layout, excluding secrets, local state, generated deployments and dependencies. It does not edit the developer's checkout.
 2. Installs lockfiles, tests the plugin against actual temporary EmDash SQLite storage, typechecks and builds it.
 3. Packs the native plugin and installs that tarball into the theme, so successful source-link resolution alone cannot hide missing package files.
-4. Typechecks/builds the Node host, explicitly migrates the disposable accounting schema using its captured settings manifest, starts the **production-mode** server and verifies its homepage plus unauthenticated CRM and accounting denial. Schema migration does not configure a business book.
+4. Typechecks/builds the Node host and requires that no accounting database was created by install/build. It starts the **production-mode** server without a prior migration, verifies its homepage and unauthenticated CRM/accounting denial, then opens the real packed SQLite adapter to confirm startup created a compatible schema without a book, journal, command or audit seed.
 5. Stops the Node server, generates **local-only synthetic** Cloudflare identifiers and a disposable secret, builds the Worker, and starts it with Wrangler `--local`. It checks the homepage, unauthenticated ERP denial and accounting route exclusion in workerd, not just compilation.
 6. Stops the process and removes the disposable directory. It never provisions, publishes, migrates a customer's database or deploys.
 
@@ -24,6 +24,8 @@ npm run compatibility -- --core baseline --theme /absolute/path/to/zhst-communit
 ```
 
 The sibling layout is the default when `--theme` is omitted. Optional `--core latest` evaluates npm's current candidate; `--core 1.2.0` selects an exact stable candidate. These are instructions, not evidence that a latest upgrade or compatibility run has been performed for the current accounting source pair. This executes native code and dependency lifecycle scripts; use isolated synthetic data, never production credentials. GitHub PR jobs have read-only permissions and no deployment secrets; do not substitute privileged execution of untrusted source.
+
+The automatic-startup gate requires the paired host's matching startup implementation. Before publishing a cross-repository change, update both workflows' reviewed companion SHA to the tested immutable commits; a pre-startup-migration host cannot pass the new fresh-install gate. Local `--theme` validation can exercise unpublished working trees, but does not prove that GitHub's currently pinned pair passes.
 
 Dependabot opens daily reviewable dependency-update PRs. In the theme, `emdash` and `@emdash-cms/cloudflare` are grouped so their exact versions move together. There is no auto-merge. A peer range expresses an allowed installation range, not evidence that every release within it has been tested. Record the actual tested baseline and candidate in the PR.
 
@@ -43,7 +45,7 @@ Before approving any candidate, exercise the browser using the **built** applica
 - Change/archive master records after submission and verify the offered snapshot stays unchanged.
 - Verify selections past the first page, keyboard operation and narrow-screen layouts.
 - Use two independent databases/installations; records and currency configuration from one must not appear in the other.
-- For Node accounting approval, exercise explicit migration/setup, masters, draft/post/cancel, AR/AP allocation, full reversal, snapshot reports and exact financial-intent recovery with the original actor. Verify anonymous/lower-role/bearer/cross-origin denial and plugin-disable revocation. Follow the [storage guide](accounting-storage.md) for paired restore/rollback; record these results separately from packed smoke checks.
+- For Node accounting approval, exercise automatic fresh startup, idempotent restart and fail-closed schema/target checks, explicit administrator book setup, masters, draft/post/cancel, AR/AP allocation, full reversal, snapshot reports and exact financial-intent recovery with the original actor. Verify anonymous/lower-role/bearer/cross-origin denial and plugin-disable revocation. Follow the [storage guide](accounting-storage.md) for paired restore/rollback; record these results separately from packed smoke checks.
 - For Cloudflare approval, run the CRM/sales browser and permission checks on an isolated deployed review Worker with its own D1, R2 and session resources; verify accounting is absent. Do not run Node accounting acceptance against D1. A Node build is not D1/Worker evidence.
 
 ## Recorded local verification — 2026-10-10
@@ -64,7 +66,7 @@ Observed upstream warnings remain visible: the admin client has a chunk over 500
 1. Read the [official update guide](https://docs.emdashcms.com/deployment/updating/), the exact core package release notes and the [core migration guide](https://docs.emdashcms.com/deployment/core-migrations/). GitHub's monorepo `releases/latest` can identify a different package; use npm's `emdash` dist-tag for the core candidate.
 2. Create a release branch. Review the dependency PR or update exact `emdash` versions in the plugin and theme, plus the matching exact Cloudflare adapter in the theme. Regenerate both lockfiles; do not merely edit version strings in the lock.
 3. Run the shared compatibility check and the manual checks above against the exact source pair. Test any plugin-data migration against old and new records, interrupted/resumed work and unsupported future versions.
-4. Follow the [paired CMS/accounting/media/key capture and restore guidance](accounting-storage.md#7-currency-migration-và-vận-hành). Keep the previous compatible artifact and prove recovery in isolation before relying on it.
+4. Follow the [paired CMS/accounting/media/key capture and restore guidance](accounting-storage.md#4-currency-migration-và-vận-hành). Keep the previous compatible artifact and prove recovery in isolation before relying on it.
 5. Record migration status/target identity before allowing the upgraded app to receive traffic. EmDash may apply core migrations on the **first request**. Do not let an automated health probe perform an unreviewed migration against a valuable database. Use the installed `emdash migrate --status --json` / `--check` and target-fingerprint confirmation flow described by the version's CLI; never substitute a public migration endpoint.
 6. Manually deploy to the isolated ZeroHostCMS review environment, then seek the separate private hosting-platform promotion approval where relevant. Roll out to approved customer cohorts only after recording a compatible artifact/database pair and agreed health checks.
 
@@ -72,7 +74,7 @@ Observed upstream warnings remain visible: the admin client has a chunk over 500
 
 ## Schema and rollback contract
 
-CRM/sales records and the separate accounting schema have distinct version owners. Core migrations do not migrate a customer field or the accounting database. Accounting's [checksummed migration owner](../src/accounting/sqlite.ts) is explicit through the paired host; changing a seed or a TypeScript interface is not migration. Each persisted model change needs an author-owned migration and recovery plan.
+CRM/sales records and the separate accounting schema have distinct version owners. Core migrations do not migrate a customer field or the accounting database. The paired VND Node host invokes the [checksummed migration owner](../src/accounting/sqlite.ts) before listening; the explicit CLI remains available for operator checks. Install/build/request paths do not run accounting migrations. Changing a seed or a TypeScript interface is not migration; each persisted model change needs an author-owned migration and recovery plan.
 
 Do not implement a downgrade by removing revision checks, treating future schema versions as old values, dropping unknown fields, changing the plugin ID or blanking configuration. Those approaches can erase customer data while appearing to make the UI work.
 
