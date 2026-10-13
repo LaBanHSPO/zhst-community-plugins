@@ -6,7 +6,7 @@ This guide is for ERP developers creating an independent customer-specific ERP m
 
 One installation is one business and its administrators. Keep its hostname, database, media, sessions, secrets and backups separate. Forked source is not data isolation by itself. Never put two customers into the same database and rely on a browser-provided `tenantId`, a different plugin name, hidden menu items or a filtered frontend.
 
-Choose the business currency before entering CRM/sales records. That workflow supports USD/EUR/GBP (two minor digits) and VND/JPY (zero) and rejects currency reinterpretation. Internal accounting requires VND on the paired Node host; its immutable book setup and separate database do not convert existing sales data. Document the customer's timezone and remember that quotation expiry uses UTC dates.
+Choose the business currency before entering CRM/sales records. That workflow supports USD/EUR/GBP (two minor digits) and VND/JPY (zero) and rejects currency reinterpretation. Internal accounting requires VND on the paired Node or Cloudflare host; its immutable book setup and separate SQLite resource do not convert existing sales data. Existing USD installations must remain USD unless an independently reviewed currency migration is authorized. Document the customer's timezone and remember that quotation expiry uses UTC dates.
 
 For each requested customization, record:
 
@@ -35,7 +35,7 @@ Do not call a feature accounting, tax-compliant invoicing or stock valuation wit
 | Role Permission Manager | EmDash `plugins:manage` | Admin-only baseline; do not claim salesperson-level permissions |
 | App migrations / patches | Reviewed versioned plugin-data migration in a fork | Core and plugin data versions are separate; changing a seed is not migration |
 
-Reference behavior comes from ERPNext's [Quotation](https://docs.frappe.io/erpnext/quotation) and [Sales Order](https://docs.frappe.io/erpnext/sales-order) documentation. Terminology is not full feature parity. CRM/sales intentionally omits ERPNext taxes, stock, pricing rules, partial fulfillment, amendments, invoicing and email delivery. The independent [internal accounting contract](accounting.md) adds manual Node/VND bookkeeping, not automatic sales posting or statutory ERPNext accounting parity.
+Reference behavior comes from ERPNext's [Quotation](https://docs.frappe.io/erpnext/quotation) and [Sales Order](https://docs.frappe.io/erpnext/sales-order) documentation. Terminology is not full feature parity. CRM/sales intentionally omits ERPNext taxes, stock, pricing rules, partial fulfillment, amendments, invoicing and email delivery. The independent [internal accounting contract](accounting.md) adds manual VND bookkeeping on Node SQLite or Cloudflare SQLite Durable Objects, not automatic sales posting or statutory ERPNext accounting parity.
 
 ## 3. Fork only the extension layer
 

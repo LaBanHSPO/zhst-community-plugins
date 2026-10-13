@@ -1,6 +1,6 @@
 # ERP mini — CRM, sales and internal VND bookkeeping for EmDash
 
-A native EmDash plugin for **customers and contacts → items/services → quotations → sales orders**, with separate **internal VND bookkeeping on the paired Node host**. It implements independent workflows inspired by ERPNext; it does not run Frappe apps, import Python DocTypes or connect to an ERPNext server. Statutory accounting, tax, stock valuation and payroll remain outside scope.
+A native EmDash plugin for **customers and contacts → items/services → quotations → sales orders**, with separate **internal VND bookkeeping on Node SQLite or Cloudflare SQLite Durable Objects**. It implements independent workflows inspired by ERPNext; it does not run Frappe apps, import Python DocTypes or connect to an ERPNext server. Statutory accounting, tax, stock valuation and payroll remain outside scope.
 
 Use it for a separately operated business installation, not as a tenant selector in one shared database. The browser UI lives inside EmDash's authenticated admin shell at `/_emdash/admin/plugins/erp-mini/workspace`. All operations require an EmDash administrator. Native plugin code has the host's authority; a capability declaration is not a security sandbox.
 
@@ -42,7 +42,7 @@ A submitted quotation cannot be edited. Cancel an unconverted quotation and crea
 
 ## Rules that customer forks must preserve
 
-- **Private records:** CRM/sales use plugin storage; accounting uses its separate Node database. Neither is a public CMS collection or unauthenticated endpoint. Every route requires `plugins:manage`; the UI is not the authorization boundary. Editors, authors and subscribers cannot operate ERP mini.
+- **Private records:** CRM/sales use plugin storage; accounting uses its separate Node database or installation-owned Durable Object. Neither is a public CMS collection or unauthenticated endpoint. Every route requires `plugins:manage`; the UI is not the authorization boundary. Editors, authors and subscribers cannot operate ERP mini.
 - **One customer installation:** separate database, uploads/bucket, session storage, hostname and secrets. A supplied `tenantId` cannot switch installations. Sharing one database between customer forks is unsupported.
 - **One business currency:** USD, EUR, GBP, VND or JPY; choose before first use. USD is the default. The saved configuration prevents an environment change from reinterpreting existing prices. Currency conversion requires a reviewed data migration, not changing a symbol.
 - **Exact money:** prices are nonnegative integer minor units, capped at 1,000,000,000,000; quantities are positive integers up to 1,000,000. Server-checked multiplication and addition must remain safe integers. No taxes, discounts, foreign exchange or fractional quantities are implied.
@@ -87,9 +87,9 @@ The community root [contribution guide](../../CONTRIBUTING.md) owns fork/branch/
 
 ### Internal VND bookkeeping
 
-The [business contract](docs/accounting.md) owns the accepted bookkeeping requirements and exclusions; the [storage and operations guide](docs/accounting-storage.md) owns explicit migration, book setup, financial recovery and paired backup/rollback decisions. Accounting is Node-only, uses a separate `accounting.db`, and never automatically posts sales orders. Cloudflare continues to provide CRM/sales without accounting.
+The [business contract](docs/accounting.md) owns the accepted bookkeeping requirements and exclusions; the [storage and operations guide](docs/accounting-storage.md) owns explicit migration, book setup, financial recovery and paired backup/rollback decisions. Node uses a separate `accounting.db`; Cloudflare uses a dedicated SQLite Durable Object, not CMS D1 or plugin-storage CAS. Accounting is enabled only for VND installations and never automatically posts sales orders. Existing USD installations remain USD with accounting excluded.
 
-Public entry points are declared in [`package.json`](package.json): `./accounting` is the pure domain/HTTP export; `./accounting-node` owns the Node SQLite driver and checksummed schema migrations. The paired host owns authenticated routes and resource lifecycle. Enablement is not book setup: schema migration precedes an administrator's explicit immutable start-date setup, accounts and opening entries. No chart of accounts or business balances are seeded automatically, and VND support is not Vietnamese legal certification.
+Public entry points are declared in [`package.json`](package.json): `./accounting` is the pure domain/HTTP export; `./accounting-node` owns Node SQLite; `./accounting-cloudflare` owns the pure Durable Object storage adapter. The paired host owns authenticated routes, operator migration/recovery and resource lifecycle. Enablement is not book setup: schema migration precedes an administrator's explicit immutable start-date setup, accounts and opening entries. No chart of accounts or business balances are seeded automatically, and VND support is not Vietnamese legal certification.
 
 ## Pack and distribute an approved native plugin
 
@@ -109,7 +109,7 @@ The sibling `file:` dependency is for development. A deployed release uses a rev
 
 Follow [core compatibility and release operations](docs/compatibility.md). Daily CI checks a pinned release and npm's current `emdash` release. A passing candidate does not update a customer. Dependabot opens reviewable dependency PRs; nothing auto-merges or deploys.
 
-Before an upgrade, follow the [paired backup and rollback procedure](docs/accounting-storage.md#7-currency-migration-và-vận-hành), keep the previous artifact, and prove recovery in an isolated installation. EmDash can apply core migrations on the **first request**, before a human visits the dashboard. Database migrations are not undone by rolling back a package. Restore a compatible database/artifact pair; do not start older code against newer data.
+Before an upgrade, follow the [paired backup and rollback procedure](docs/accounting-storage.md#4-currency-migration-và-vận-hành), keep the previous artifact, and prove recovery in an isolated installation. EmDash can apply core migrations on the **first request**, before a human visits the dashboard. Database migrations are not undone by rolling back a package. Restore a compatible database/artifact pair; do not start older code against newer data.
 
 Removing the plugin registration or deactivating it removes access to its pages/routes but retains stored business records. Uninstall is not deletion, archival or a backup. Destructive erasure and retention policies need an explicit operator-approved procedure and customer authorization.
 

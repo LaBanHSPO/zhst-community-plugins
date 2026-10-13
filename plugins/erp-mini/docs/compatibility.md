@@ -9,10 +9,10 @@ Each community repository has a daily **ERP compatibility** workflow plus PR/man
 The matrix compares the checked-in baseline with npm's current `emdash` release. The shared runner at `scripts/compatibility.mjs`:
 
 1. Copies both projects into a disposable sibling-clone layout, excluding secrets, local state, generated deployments and dependencies. It does not edit the developer's checkout.
-2. Installs lockfiles, tests the plugin against actual temporary EmDash SQLite storage, typechecks and builds it.
+2. Installs lockfiles, runs the existing Node/domain tests, typechecks/builds the plugin, then runs the compiled Cloudflare adapter against real Miniflare/workerd SQLite Durable Objects without Node compatibility.
 3. Packs the native plugin and installs that tarball into the theme, so successful source-link resolution alone cannot hide missing package files.
 4. Typechecks/builds the Node host, explicitly migrates the disposable accounting schema using its captured settings manifest, starts the **production-mode** server and verifies its homepage plus unauthenticated CRM and accounting denial. Schema migration does not configure a business book.
-5. Stops the Node server, generates **local-only synthetic** Cloudflare identifiers and a disposable secret, builds the Worker, and starts it with Wrangler `--local`. It checks the homepage, unauthenticated ERP denial and accounting route exclusion in workerd, not just compilation.
+5. Stops the Node server, generates **local-only synthetic** Cloudflare identifiers and a disposable secret, then builds/starts VND and USD Workers sequentially with Wrangler `--local`. It checks homepages, unauthenticated ERP denial, the actual VND accounting session denial, and USD accounting route exclusion in workerd. The paired theme smoke also checks the Worker runtime import boundary.
 6. Stops the process and removes the disposable directory. It never provisions, publishes, migrates a customer's database or deploys.
 
 The latest candidate must have an identically versioned `@emdash-cms/cloudflare` package. A missing adapter, unsupported new core major or broken contract fails visibly; the runner does not silently fall back. If baseline and latest resolve to the same release, the two checks are not evidence for two different core versions.
@@ -44,7 +44,7 @@ Before approving any candidate, exercise the browser using the **built** applica
 - Verify selections past the first page, keyboard operation and narrow-screen layouts.
 - Use two independent databases/installations; records and currency configuration from one must not appear in the other.
 - For Node accounting approval, exercise explicit migration/setup, masters, draft/post/cancel, AR/AP allocation, full reversal, snapshot reports and exact financial-intent recovery with the original actor. Verify anonymous/lower-role/bearer/cross-origin denial and plugin-disable revocation. Follow the [storage guide](accounting-storage.md) for paired restore/rollback; record these results separately from packed smoke checks.
-- For Cloudflare approval, run the CRM/sales browser and permission checks on an isolated deployed review Worker with its own D1, R2 and session resources; verify accounting is absent. Do not run Node accounting acceptance against D1. A Node build is not D1/Worker evidence.
+- For Cloudflare approval, use an isolated deployed review Worker with its own D1, R2, session and dedicated SQLite accounting Durable Object namespace. On VND, exercise the same B01–B21 business acceptance, signed explicit migration, administrator book setup, original-actor command replay and a paired D1/media/key/accounting PITR restore rehearsal. Verify native session/permission/CSRF/plugin-disable boundaries and that operator methods are inaccessible through public admin accounting. On USD, preserve the saved currency and verify accounting is absent. D1 is not the financial transaction owner; Node or local workerd success is not deployed-Worker/PITR evidence.
 
 ## Recorded local verification — 2026-10-10
 
@@ -64,7 +64,7 @@ Observed upstream warnings remain visible: the admin client has a chunk over 500
 1. Read the [official update guide](https://docs.emdashcms.com/deployment/updating/), the exact core package release notes and the [core migration guide](https://docs.emdashcms.com/deployment/core-migrations/). GitHub's monorepo `releases/latest` can identify a different package; use npm's `emdash` dist-tag for the core candidate.
 2. Create a release branch. Review the dependency PR or update exact `emdash` versions in the plugin and theme, plus the matching exact Cloudflare adapter in the theme. Regenerate both lockfiles; do not merely edit version strings in the lock.
 3. Run the shared compatibility check and the manual checks above against the exact source pair. Test any plugin-data migration against old and new records, interrupted/resumed work and unsupported future versions.
-4. Follow the [paired CMS/accounting/media/key capture and restore guidance](accounting-storage.md#7-currency-migration-và-vận-hành). Keep the previous compatible artifact and prove recovery in isolation before relying on it.
+4. Follow the [paired CMS/accounting/media/key capture and restore guidance](accounting-storage.md#4-currency-migration-và-vận-hành). Keep the previous compatible artifact and prove recovery in isolation before relying on it.
 5. Record migration status/target identity before allowing the upgraded app to receive traffic. EmDash may apply core migrations on the **first request**. Do not let an automated health probe perform an unreviewed migration against a valuable database. Use the installed `emdash migrate --status --json` / `--check` and target-fingerprint confirmation flow described by the version's CLI; never substitute a public migration endpoint.
 6. Manually deploy to the isolated ZeroHostCMS review environment, then seek the separate private hosting-platform promotion approval where relevant. Roll out to approved customer cohorts only after recording a compatible artifact/database pair and agreed health checks.
 

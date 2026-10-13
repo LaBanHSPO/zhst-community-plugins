@@ -113,26 +113,39 @@ try {
   server = spawn(process.execPath, ['scripts/start.mjs'], { cwd: theme, env, stdio: ['ignore', 'inherit', 'inherit'] });
   await checkServer(origin, 'Built Node host', true);
   await stopServer();
+  command(['run', 'accounting:test'], theme, env);
 
-  // Synthetic identifiers are confined to this disposable copy; --local forbids remote bindings.
-  command(['run', 'cloudflare:configure', '--',
-    '--name', 'erp-mini-compat-local',
-    '--account-id', '11111111111111111111111111111111',
-    '--database-id', '11111111-1111-4111-8111-111111111111',
-    '--database-name', 'erp-mini-compat-local',
-    '--bucket-name', 'erp-mini-compat-local',
-    '--site-url', 'https://erp-mini-compat.example.invalid', '--currency', 'USD',
-  ], theme, env);
-  await writeFile(join(theme, '.dev.vars'), `EMDASH_ENCRYPTION_KEY=${env.EMDASH_ENCRYPTION_KEY}\n`, { mode: 0o600 });
-  command(['run', 'cloudflare:build'], theme, env);
-  const workerPort = await freePort();
-  server = spawn(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'dev',
-    '--config', 'dist/server/wrangler.json', '--local', '--ip', '127.0.0.1',
-    '--port', String(workerPort), '--inspector-port', '0', '--log-level', 'warn',
-  ], { cwd: theme, env, stdio: ['ignore', 'inherit', 'inherit'] });
-  await checkServer(`http://127.0.0.1:${workerPort}`, 'Built local Cloudflare Worker', false);
-  console.log(`PASS: packed plugin, real SQLite business tests, accounting schema migration, typechecks, Node session denial and local Worker route exclusion; core ${version}.`);
-  console.log('Authenticated browser and deployed Cloudflare acceptance remain separate release checks. No customer upgraded.');
+  // Synthetic identifiers stay in this disposable copy; --local forbids remote bindings.
+  // VND has the full accounting transport; USD must never expose it or reinterpret CRM.
+  for (const currency of ['VND', 'USD']) {
+    const workerEnv = { ...env, ERP_CURRENCY: currency };
+    command(['run', 'cloudflare:configure', '--',
+      '--name', `erp-mini-compat-local-${currency.toLowerCase()}`,
+      '--account-id', '11111111111111111111111111111111',
+      '--database-id', '11111111-1111-4111-8111-111111111111',
+      '--database-name', 'erp-mini-compat-local',
+      '--bucket-name', 'erp-mini-compat-local',
+      '--site-url', 'https://erp-mini-compat.example.invalid', '--currency', currency,
+    ], theme, workerEnv);
+    await writeFile(join(theme, '.dev.vars'), `EMDASH_ENCRYPTION_KEY=${env.EMDASH_ENCRYPTION_KEY}\n`, { mode: 0o600 });
+    command(['run', 'cloudflare:build'], theme, workerEnv);
+    const workerPort = await freePort();
+    server = spawn(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'dev',
+      '--config', 'dist/server/wrangler.json', '--local', '--ip', '127.0.0.1',
+      '--port', String(workerPort), '--inspector-port', '0', '--log-level', 'warn',
+    ], { cwd: theme, env: workerEnv, stdio: ['ignore', 'inherit', 'inherit'] });
+    await checkServer(`http://127.0.0.1:${workerPort}`, `Built local Cloudflare ${currency} Worker`, currency === 'VND');
+    const smoke = spawnSync(process.execPath, ['scripts/accounting-worker-smoke.mjs',
+      '--url', `http://127.0.0.1:${workerPort}`, '--currency', currency,
+    ], { cwd: theme, env: workerEnv, stdio: 'inherit' });
+    if (smoke.error) throw smoke.error;
+    if (smoke.status !== 0) throw new Error(`Cloudflare ${currency} accounting transport smoke failed (${smoke.status}).`);
+    await stopServer();
+    // This file was created by this loop in its disposable copy, never a caller's config.
+    await rm(join(theme, 'wrangler.json'));
+  }
+  console.log(`PASS: packed plugin, Node and workerd SQLite regressions, explicit accounting migration, typechecks, Node/VND Worker session denial and USD Worker route exclusion; core ${version}.`);
+  console.log('Authenticated browser, paired restore and deployed Cloudflare acceptance remain separate release checks. No customer upgraded.');
 } finally {
   await stopServer();
   await rm(directory, { recursive: true, force: true });

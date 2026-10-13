@@ -3,9 +3,17 @@ import { ErpService, type ErpStorage } from '../service.js';
 import { ErpError, parse, settingsRecordSchema, customerRecordSchema } from '../validation.js';
 import { sourceCustomerSchema } from './validation.js';
 
+export interface SourceCustomerSnapshot {
+  code: string;
+  name: string;
+  sourceKind: 'customer';
+  sourceId: string;
+  sourceRevision: string;
+}
+
 export interface ErpAccountingSource {
   checkCurrency(initialize: boolean, allowMissing?: boolean): Promise<void>;
-  customer(id: string, revision: string): Promise<{ code: string; name: string; sourceKind: 'customer'; sourceId: string; sourceRevision: string }>;
+  customer(id: string, revision: string): Promise<SourceCustomerSnapshot>;
 }
 export function createErpAccountingSource(storage: ErpStorage, actorId: string, currency: Currency): ErpAccountingSource {
   return {

@@ -443,8 +443,9 @@ export class AccountingService {
         if (data.active !== undefined) { clauses.push('active=?'); parameters.push(Number(data.active)); }
         if (data.kind !== undefined) { clauses.push('kind=?'); parameters.push(data.kind); }
         if (data.search) {
-          clauses.push("(nameKey LIKE ? ESCAPE '\\' OR codeKey LIKE ? ESCAPE '\\')");
-          const term = `%${data.search.normalize('NFKC').toLowerCase().replace(/[\\%_]/g, '\\$&')}%`;
+          // Literal substring search avoids SQLite DO's 50-byte LIKE pattern limit.
+          clauses.push('(instr(nameKey,?)>0 OR instr(codeKey,?)>0)');
+          const term = data.search.normalize('NFKC').toLowerCase();
           parameters.push(term, term);
         }
       }
