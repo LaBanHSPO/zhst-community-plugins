@@ -83,7 +83,7 @@ function bundleRequest(parts: readonly MultipartPart[], token?: string, path = "
 	});
 }
 
-async function pushBundle(token: string, payload: string, overrides: Partial<{ channel: string; binary: string; sha256: string }> = {}) {
+async function pushBundle(token: string, payload: string, overrides: Partial<{ channel: string; binary: string; sha256: string; signature: string; mandatory: string }> = {}) {
 	const bytes = encoder.encode(payload);
 	const sha = overrides.sha256 ?? (await sha256Hex(bytes));
 	return handleOtaAppRequest(
@@ -93,10 +93,32 @@ async function pushBundle(token: string, payload: string, overrides: Partial<{ c
 			{ name: "sha256", value: sha },
 			{ name: "note", value: "fix màn giao hàng" },
 			{ name: "commit", value: "e39c6d34" },
+			...(overrides.signature === undefined ? [] : [{ name: "signature", value: overrides.signature }]),
+			...(overrides.mandatory === undefined ? [] : [{ name: "mandatory", value: overrides.mandatory }]),
 			{ name: "bundle", filename: "app.bundle", contentType: "application/octet-stream", bytes },
 		], token),
 		"unitel-man/android/releases",
 		runtime,
+	);
+}
+
+async function uploadFromWorkspace(metadata: readonly MultipartPart[] = []): Promise<Response> {
+	const multipart = multipartBody([
+		{ name: "app", value: "unitel-man" },
+		{ name: "platform", value: "ios" },
+		{ name: "channel", value: "release/metadata" },
+		{ name: "binary", value: "1.6.6" },
+		...metadata,
+		{ name: "bundle", filename: "app.bundle", bytes: encoder.encode("admin-metadata") },
+	]);
+	return handleOtaAdminRequest(
+		new Request(`${ORIGIN}/api/ota/release-upload`, {
+			method: "POST",
+			headers: { "X-EmDash-Request": "1", Origin: ORIGIN, "content-type": multipart.contentType },
+			body: multipart.body as unknown as BodyInit,
+		}),
+		"release-upload",
+		adminRuntime(),
 	);
 }
 
@@ -181,7 +203,54 @@ describe("POST /ota/{app}/{platform}/releases", () => {
 		assert.equal(entry.branch, "ducnv/feature/luu-kho");
 		assert.equal(entry.note, "fix màn giao hàng");
 		assert.equal(platform.objects.size, 1);
+		assert.equal(entry.signature, "");
+		assert.equal(entry.mandatory, false);
 		assert.ok(platform.objects.has(`unitel-man/android/${entry.file}`));
+	});
+
+	it("returns exact base64 and boolean true/false in 201, manifest and authenticated list", async () => {
+		const token = await issueToken();
+		const signature = btoa(String.fromCharCode(...new Uint8Array(64).fill(255)));
+		assert.equal(signature.length, 88);
+		const required = await pushBundle(token, "metadata-bundle", { signature, mandatory: "true" });
+		assert.equal(required.status, 201);
+		const first = await readJson<OtaManifestEntry>(required);
+		assert.equal(first.signature, signature);
+		assert.equal(first.mandatory, true);
+		const firstManifest = await readJson<OtaManifest>(await handleOtaAppRequest(
+			appRequest("unitel-man/android/manifest.json"), "unitel-man/android/manifest.json", runtime,
+		));
+		assert.deepEqual(firstManifest.channels[first.branch]?.["1.0.66+93"], first);
+
+		clock += 1000;
+		const optional = await pushBundle(token, "metadata-bundle", { signature, mandatory: "false" });
+		assert.equal(optional.status, 201);
+		const second = await readJson<OtaManifestEntry>(optional);
+		assert.notEqual(second.id, first.id, "metadata changes must not be dropped as a retry");
+		assert.equal(second.signature, signature);
+		assert.equal(second.mandatory, false);
+		const listed = await readJson<OtaManifest>(await handleOtaAppRequest(
+			appRequest("unitel-man/android/releases", { headers: { authorization: `Bearer ${token}` } }),
+			"unitel-man/android/releases", runtime,
+		));
+		assert.deepEqual(listed.channels[first.branch]?.["1.0.66+93"], second);
+	});
+
+	it("rejects malformed mandatory values and signatures with 400 without storing a release", async () => {
+		const token = await issueToken();
+		for (const mandatory of ["", "TRUE", "False", "1", "0", "yes", " false", "null"]) {
+			const response = await pushBundle(token, "invalid", { mandatory });
+			assert.equal(response.status, 400, `mandatory=${JSON.stringify(mandatory)}`);
+			assert.equal((await readJson<{ error: { code: string } }>(response)).error.code, "INVALID_INPUT");
+		}
+		for (const signature of ["not base64", "____", "YQ", "YQ==\n", "YR==", "a".repeat(4100)]) {
+			const response = await pushBundle(token, "invalid", { signature });
+			assert.equal(response.status, 400, `signature=${JSON.stringify(signature.slice(0, 16))}`);
+			assert.equal((await readJson<{ error: { code: string } }>(response)).error.code, "INVALID_INPUT");
+		}
+		assert.equal(platform.objects.size, 0);
+		const count = await db.prepare("SELECT COUNT(*) AS n FROM ota_releases").first<{ n: number }>();
+		assert.equal(count?.n, 0);
 	});
 
 	it("refuses an unauthenticated, wrong-app or malformed token", async () => {
@@ -552,6 +621,45 @@ describe("/api/ota admin surface", () => {
 		assert.equal(payload.data.sha256, await sha256Hex(encoder.encode("admin-upload")));
 		assert.equal(payload.data.platform, "ios");
 		assert.equal(payload.data.selected, true);
+	});
+
+	it("accepts manual-upload metadata and defaults omitted fields", async () => {
+		const signature = btoa(String.fromCharCode(...new Uint8Array(64).fill(255)));
+		const response = await uploadFromWorkspace([
+			{ name: "signature", value: signature },
+			{ name: "mandatory", value: "true" },
+		]);
+		assert.equal(response.status, 201);
+		const { data: release } = await readJson<{ data: OtaRelease }>(response);
+		assert.equal(release.signature, signature);
+		assert.equal(release.mandatory, true);
+		const manifest = await readJson<OtaManifest>(await handleOtaAppRequest(
+			appRequest("unitel-man/ios/manifest.json"), "unitel-man/ios/manifest.json", runtime,
+		));
+		assert.equal(manifest.channels[release.channel]?.[release.binary]?.signature, signature);
+		assert.equal(manifest.channels[release.channel]?.[release.binary]?.mandatory, true);
+		clock += 1000;
+		const legacyResponse = await uploadFromWorkspace();
+		assert.equal(legacyResponse.status, 201);
+		const { data: legacy } = await readJson<{ data: OtaRelease }>(legacyResponse);
+		assert.equal(legacy.signature, "");
+		assert.equal(legacy.mandatory, false);
+	});
+
+	it("uses common metadata validation for manual uploads and stores nothing on invalid input", async () => {
+		for (const field of [
+			{ name: "mandatory", value: "yes" },
+			{ name: "signature", value: "not base64" },
+			{ name: "note", value: "a".repeat(501) },
+			{ name: "commit", value: "not a commit!" },
+		]) {
+			const response = await uploadFromWorkspace([field]);
+			assert.equal(response.status, 400, field.name);
+			const result = await readJson<{ ok: boolean; error: { code: string } }>(response);
+			assert.equal(result.ok, false);
+			assert.equal(result.error.code, "INVALID_INPUT");
+		}
+		assert.equal(platform.objects.size, 0);
 	});
 
 	it("deletes and promotes a release, then records the activity", async () => {

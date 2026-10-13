@@ -17,26 +17,36 @@ APP="${app}"
 PLATFORM="${platform}"
 CHANNEL="${channel}"
 BINARY="${binary}"
-TOKEN="\$OTA_PUSH_TOKEN"          # created in the Push tokens tab
+TOKEN="\$OTA_PUSH_TOKEN"          # private bearer, shown once in Push tokens
+SIGNATURE="\${OTA_PUBLIC_SIGNATURE:-}" # public metadata, never an upload credential
+MANDATORY="\${OTA_MANDATORY:-false}"   # exact text true/false; mobile implements the policy
+set --
+if [ -n "\${OTA_UPLOAD_KEY:-}" ]; then
+  set -- -H "X-OTA-Upload-Key: \$OTA_UPLOAD_KEY"
+fi
+# A configured app requires its private OTA_UPLOAD_KEY from the approved CI secret store.
 BUNDLE="./build/app.bundle"
 
 SHA=\$(shasum -a 256 "\$BUNDLE" | awk '{print \$1}')
 
-# Publish the build. channel and binary are URL-encoded because they contain / and +.
+# Publish. Multipart channel/binary stay literal; URL query values below are encoded.
 curl --fail-with-body -X POST \\
   "\$BASE/ota/\$APP/\$PLATFORM/releases" \\
   -H "Authorization: Bearer \$TOKEN" \\
+  "\$@" \\
   -F "bundle=@\$BUNDLE" \\
-  -F "channel=\$CHANNEL" \\
-  -F "binary=\$BINARY" \\
-  -F "sha256=\$SHA" \\
-  -F "note=nightly" \\
-  -F "commit=\$(git rev-parse --short HEAD)"
+  --form-string "channel=\$CHANNEL" \\
+  --form-string "binary=\$BINARY" \\
+  --form-string "sha256=\$SHA" \\
+  --form-string "signature=\$SIGNATURE" \\
+  --form-string "mandatory=\$MANDATORY" \\
+  --form-string "note=nightly" \\
+  --form-string "commit=\$(git rev-parse --short HEAD)"
 
 # The apps read this anonymously; keep it fresh (no-cache is set).
 curl --fail-with-body "\$BASE/ota/\$APP/\$PLATFORM/manifest.json"
 
-# Remove one channel + binary. Devices fall back to their built-in version.
+# Destructive: removes every release for this pair; mobile owns any fallback policy.
 curl --fail-with-body -X DELETE \\
   "\$BASE/ota/\$APP/\$PLATFORM/releases?channel=${encodedChannel}&binary=${encodedBinary}" \\
   -H "Authorization: Bearer \$TOKEN"`;
@@ -99,11 +109,12 @@ export function ApiTab({ info }: { info: OtaInfo }) {
 								<td>
 									<code>/ota/&#123;app&#125;/&#123;platform&#125;/releases</code>
 								</td>
-								<td>Bearer</td>
+								<td>Bearer + upload key if configured</td>
 								<td>
 									<code>multipart/form-data</code>: <code>bundle</code>, <code>channel</code>, <code>binary</code>,{" "}
-									<code>sha256</code>, optional <code>note</code>, <code>commit</code>. Answers{" "}
-									<code>201</code> with the manifest entry. Maximum {bytes(info.limits.maxBundleBytes)}.
+									<code>sha256</code>; optional <code>note</code>, <code>commit</code>, <code>signature</code> and{" "}
+									<code>mandatory</code>. Answers <code>201</code> with one manifest entry, including public{" "}
+									<code>signature</code> and boolean <code>mandatory</code>. Maximum {bytes(info.limits.maxBundleBytes)}.
 								</td>
 							</tr>
 							<tr>
@@ -115,7 +126,7 @@ export function ApiTab({ info }: { info: OtaInfo }) {
 								</td>
 								<td>Bearer</td>
 								<td>
-									Answers <code>204</code>. Devices on that channel fall back to the built-in build.
+									Answers <code>204</code>; removes all releases for the pair, not bytes already on a device.
 								</td>
 							</tr>
 							<tr>
@@ -133,9 +144,65 @@ export function ApiTab({ info }: { info: OtaInfo }) {
 				</div>
 			</Section>
 
+			<Section title="Release metadata and mobile policy" description="The backend stores metadata; the mobile app applies updates.">
+				<ul className="ota-rules">
+					<li>
+						<code>signature</code> is optional public metadata, default <code>""</code>: canonical standard
+						base64, at most 4096 characters. A 64-byte value is 88 characters; no algorithm-specific length is
+						required. The server does not verify signatures or prove bundle origin.
+					</li>
+					<li>
+						Send multipart <code>mandatory</code> as exactly <code>true</code> or <code>false</code>;
+						omission defaults to <code>false</code>. It is returned as a JSON boolean, never a truthy string.
+						<code>true</code> means mobile must apply the compatible update; <code>false</code> means optional.
+						Mobile must implement that policy; the server cannot install or restart the app.
+					</li>
+					<li>SHA-256 checks uploaded bytes against the publisher's declared hash, not trusted signing.</li>
+				</ul>
+				<div className="ota-snippet">
+					<pre><code>{`// 201 is one entry; manifest wraps it at channels[channel][binary].
+// Other fields remain id, file, sha256, size, note, commit, branch, createdAt.
+{"signature":"","mandatory":false}`}</code></pre>
+				</div>
+			</Section>
+
+			<Section title="Private upload protection" description="Never put a bearer or upload key in signature or the mobile app.">
+				<ul className="ota-rules">
+					<li>
+						Create or rotate the per-app key under Push tokens → Extra upload protection. The server generates
+						64 random bytes as standard base64 (88 characters), stores only its hash and returns plaintext once.
+						First creation enables an additional <code>X-OTA-Upload-Key</code> requirement for public POST releases.
+						Unconfigured apps still require only the existing bearer.
+					</li>
+					<li>
+						Rotation immediately replaces the key for newly authenticated pushes; an upload already authenticated
+						may finish. Existing releases/downloads, bearer list/DELETE and session-authorized manual admin upload
+						are unchanged. Missing/wrong configured keys return <code>403 UPLOAD_KEY_REQUIRED</code> or{" "}
+						<code>UPLOAD_KEY_INVALID</code>.
+					</li>
+					<li>
+						Admin endpoints use the same-origin EmDash session with <code>settings:manage</code>, not a push
+						bearer. Writes require matching <code>Origin</code>, <code>X-EmDash-Request: 1</code>, and JSON
+						<code>Content-Type: application/json</code>. Browser fetch uses <code>credentials: "same-origin"</code>.
+					</li>
+				</ul>
+				<div className="ota-snippet">
+					<pre><code>{`GET /api/ota/upload-key?app=${app}
+200 {"ok":true,"data":{"app":"${app}","configured":false,"updatedAt":null}}
+
+POST /api/ota/upload-key-rotate
+JSON body: {"app":"${app}"}
+201 {ok:true,data:{key:<one-time private value>,record:{app,configured:true,updatedAt}}}
+
+Admin errors: {"ok":false,"error":{"code":"...","message":"..."}}
+Admin responses: Cache-Control: private, no-store
+Do not log the rotation response. Transfer the key to the approved CI secret store.`}</code></pre>
+				</div>
+			</Section>
+
 			<Section
 				title="Publish from CI"
-				description="Adjust the example, then copy it into the pipeline. SHA-256 is verified server-side; a mismatch is rejected with 400."
+				description="Bash example: inject private credentials from the approved CI store, never log them. SHA mismatch returns 400; it is not signature verification."
 			>
 				<div className="ota-grid">
 					<Input
@@ -162,21 +229,21 @@ export function ApiTab({ info }: { info: OtaInfo }) {
 						deleted.
 					</li>
 					<li>
-						A build that is not pushed again within <strong>{info.limits.retentionDays} days</strong> expires
-						automatically, including the current one. Push on the schedule the apps expect, or raise the retention
-						window in the host configuration.
+						A build expires <strong>{info.limits.retentionDays} days</strong> after creation, including the current
+						one. Replaying identical bytes and metadata does not refresh its creation time. Choose a retention
+						window appropriate to the dev release schedule.
 					</li>
 					<li>
-						Roll back from the Releases tab: the previous build becomes the manifest entry immediately, with no
-						client change.
+						Roll back from Releases: the selected build becomes the manifest entry immediately. Mobile must poll
+						and apply it; the server does not force a running device to revert.
 					</li>
 					<li>
 						Manifests are derived from the database inside one transaction, so two simultaneous pushes cannot lose
 						each other's build.
 					</li>
 					<li>
-						The same bundle pushed twice with the same SHA-256 for the same channel and binary is treated as a retry
-						and does not create a duplicate.
+						A current bundle replay requires the same SHA-256, size, signature and mandatory flag. It returns
+						the existing release without a duplicate; changing signature or mandatory creates a new release.
 					</li>
 				</ul>
 			</Section>

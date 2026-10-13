@@ -129,6 +129,7 @@ export function ReleasesTab({ info }: { info: OtaInfo }) {
 										<th scope="col">Build id</th>
 										<th scope="col">Size</th>
 										<th scope="col">Note / commit</th>
+										<th scope="col">Update metadata</th>
 										<th scope="col">Created</th>
 										<th scope="col">State</th>
 										<th scope="col">Actions</th>
@@ -153,6 +154,16 @@ export function ReleasesTab({ info }: { info: OtaInfo }) {
 											<td>
 												{release.note === "" ? <span className="ota-muted">—</span> : release.note}
 												{release.commit === "" ? null : <small>{release.commit}</small>}
+											</td>
+											<td>
+												<Badge variant={release.mandatory ? "warning" : "secondary"}>
+													{release.mandatory ? "Mandatory" : "Optional"}
+												</Badge>
+												{release.signature === "" ? (
+													<small className="ota-muted">No signature</small>
+												) : (
+													<small><code>{release.signature}</code></small>
+												)}
 											</td>
 											<td>{when(release.createdAt)}</td>
 											<td>
@@ -211,6 +222,8 @@ function UploadForm({ info, onUploaded }: { info: OtaInfo; onUploaded: () => voi
 	const [binary, setBinary] = useState("");
 	const [note, setNote] = useState("");
 	const [commit, setCommit] = useState("");
+	const [signature, setSignature] = useState("");
+	const [mandatory, setMandatory] = useState(false);
 	const [file, setFile] = useState<File | null>(null);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<unknown>(null);
@@ -229,12 +242,16 @@ function UploadForm({ info, onUploaded }: { info: OtaInfo; onUploaded: () => voi
 		form.set("binary", binary.trim());
 		form.set("note", note);
 		form.set("commit", commit);
+		form.set("signature", signature);
+		form.set("mandatory", mandatory ? "true" : "false");
 		form.set("bundle", file, file.name);
 		try {
 			const release = await uploadBundle(form);
 			setDone(`Published ${release.releaseId} for ${release.channel} · ${release.binary}.`);
 			setNote("");
 			setCommit("");
+			setSignature("");
+			setMandatory(false);
 			setFile(null);
 			onUploaded();
 		} catch (cause) {
@@ -281,6 +298,23 @@ function UploadForm({ info, onUploaded }: { info: OtaInfo; onUploaded: () => voi
 				/>
 				<Input label="Note" value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} />
 				<Input label="Commit" value={commit} onChange={(event) => setCommit(event.target.value)} maxLength={64} />
+				<Input
+					label="Signature (standard base64, optional)"
+					value={signature}
+					onChange={(event) => setSignature(event.target.value)}
+					maxLength={4096}
+				/>
+				<label className="ota-field">
+					<span>
+						<input
+							type="checkbox"
+							checked={mandatory}
+							onChange={(event) => setMandatory(event.target.checked)}
+						/>{" "}
+						Mandatory update
+					</span>
+					<small>The mobile app must apply mandatory updates. The server stores this flag only.</small>
+				</label>
 				<label className="ota-field">
 					<span>Bundle file</span>
 					<input

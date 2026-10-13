@@ -4,11 +4,13 @@ A native EmDash plugin that hosts over-the-air builds for Android and iOS apps: 
 
 Use it with the companion [OTA server theme](../../../zhst-community-themes/themes/ota-server/README.md). The plugin owns the rules, the storage adapters and the admin UI; the theme owns the HTTP paths, because EmDash mounts plugin routes under `/_emdash/api/plugins/{id}/*` with an 8 MiB body ceiling while a bundle is 25–100 MiB.
 
+The canonical [Vietnamese API and operations handover](../../../zhst-community-themes/themes/ota-server/docs/ota-van-hanh.vi.md) covers mobile responsibilities, CI publishing, administrator credentials, setup, approved deployment, migrations and recovery. Its separately requested Downloads copy is an export, not another authority.
+
 ## Install and check
 
 ```sh
 npm ci
-npm run check          # typecheck, 65 tests, build
+npm run check          # typecheck, tests, build
 ```
 
 Then follow the [theme setup](../../../zhst-community-themes/themes/ota-server/README.md#run-locally). The admin page is `/_emdash/admin/plugins/ota-server/workspace`. This package alone does not mount HTTP routes and does not touch the database until the theme's routes call it.
@@ -21,7 +23,7 @@ The paths and bodies below are frozen: the mobile apps are already integrated.
 | --- | --- | --- | --- |
 | `GET` | `/ota/{app}/{platform}/manifest.json` | none | `{"channels":{"<channel>":{"<binary>":{…}}}}`; `{"channels":{}}` when empty; `Cache-Control: no-cache` |
 | `GET` | `/ota/{app}/{platform}/{file}` | none | Bundle bytes with an exact `Content-Length`, no content coding, `Cache-Control: public, max-age=31536000, immutable`, an `ETag` of the sha256, and `Range` support for resumed downloads |
-| `POST` | `/ota/{app}/{platform}/releases` | Bearer | `multipart/form-data`; answers `201` with the manifest entry it created |
+| `POST` | `/ota/{app}/{platform}/releases` | Bearer + per-app upload key when configured | `multipart/form-data`; answers `201` with the manifest entry it created |
 | `DELETE` | `/ota/{app}/{platform}/releases?channel=&binary=` | Bearer | Removes one channel + binary; answers `204` |
 | `GET` | `/ota/{app}/{platform}/releases` | Bearer | Same body as the manifest |
 
@@ -37,6 +39,8 @@ The paths and bodies below are frozen: the mobile apps are already integrated.
 | `sha256` | text | 64 hex characters. The server recomputes it and answers `400 SHA_MISMATCH` when it differs; nothing is stored in that case |
 | `note` | text | Optional, at most 500 characters |
 | `commit` | text | Optional, at most 64 characters |
+| `signature` | text | Optional public metadata, default `""`; canonical standard base64, at most 4096 characters. A 64-byte value is 88 characters; the server does not verify signatures or require an algorithm-specific length |
+| `mandatory` | text | Optional, exactly `true` or `false`, default `false`; persisted and returned as a JSON boolean |
 
 The response is exactly one manifest entry. The server derives the rest:
 
@@ -48,40 +52,32 @@ The response is exactly one manifest entry. The server derives the rest:
   "size": 19707016,
   "note": "fix màn giao hàng",
   "commit": "e39c6d34",
+  "signature": "",
+  "mandatory": false,
   "branch": "ducnv/feature/luu-kho",
-  "createdAt": "2026-10-08T02:15:00.000Z"
+  "createdAt": "2026-10-08T09:15:00.000Z"
 }
 ```
 
 `id` is the UTC push time; `file` is the storage-relative path, with `/` in the channel collapsed to `_` because a generated file name cannot contain it; `branch` repeats `channel`.
 
-```sh
-TOKEN=…                       # created in the workspace, shown once
-BASE=https://ota.example.com
-BUNDLE=./build/app.bundle
+Publishing examples are maintained in the [Vietnamese handover](../../../zhst-community-themes/themes/ota-server/docs/ota-van-hanh.vi.md). Keep the public `signature` separate from the private bearer token and `X-OTA-Upload-Key`; SHA-256 checks bytes against the publisher's declared hash, not trusted bundle origin.
 
-curl --fail-with-body -X POST "$BASE/ota/unitel-man/android/releases" \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "bundle=@$BUNDLE" \
-  -F "channel=ducnv/feature/luu-kho" \
-  -F "binary=1.0.66+93" \
-  -F "sha256=$(shasum -a 256 "$BUNDLE" | awk '{print $1}')" \
-  -F "commit=$(git rev-parse --short HEAD)"
-```
+`mandatory: true` means the mobile app must apply the compatible update; `false` means optional. The backend stores and returns this flag only. Mobile must implement the update policy; deleting or promoting a release cannot force an already-running device to change bundles.
 
 `channel` and `binary` are URL-encoded on the wire when they appear in a query string (`%2F`, `%2B`). The server also accepts an unencoded `+`, because `+` is not a space in this position.
 
 ### Errors
 
-Failures are `{"error":{"code":"…","message":"…"}}` with a status that matches: `401 AUTH_REQUIRED` / `TOKEN_INVALID` / `TOKEN_REVOKED`, `403 TOKEN_APP_MISMATCH`, `404 APP_UNKNOWN` / `NOT_FOUND` / `BUNDLE_UNAVAILABLE`, `400 SHA_MISMATCH` / `INVALID_INPUT` / `BUNDLE_MISSING`, `409 APP_DISABLED`, `413 BUNDLE_TOO_LARGE`, `502 STORAGE_*`, `503 STORAGE_NOT_CONFIGURED`.
+Failures are `{"error":{"code":"…","message":"…"}}`; [HTTP handlers](src/http/) and [storage adapters](src/storage/) own the status/code mapping. In addition to bearer authentication, protected public pushes reject missing or wrong upload keys with `403 UPLOAD_KEY_REQUIRED` or `UPLOAD_KEY_INVALID`. The handover includes troubleshooting without exposing credentials.
 
 ## Rules the server enforces
 
 - **The manifest is a query, not a document.** It is rebuilt from the release table inside one transaction, so two simultaneous pushes cannot publish a half-written manifest or lose each other's build.
-- **Two builds per channel + binary.** The current one plus the one immediately before it; anything older is deleted with its object. A rollback to the previous build is one click and needs no client change.
-- **Builds expire after 14 days** (`OTA_RETENTION_DAYS`) if they are not pushed again, including the current one. Every push sweeps expired builds, and a daily cron covers a channel that stops receiving pushes.
-- **A rejected push stores nothing.** The sha256 is verified before an object is written.
-- **A repeated push with identical bytes for the same channel + binary is a retry**, not a second release: the stored build is returned with `201` and no duplicate row or object is created.
+- **Two builds per channel + binary.** The current one plus the one immediately before it; anything older is deleted with its object. Rollback changes the manifest pointer, not the bundle already running on a device.
+- **Builds expire by creation time** after `OTA_RETENTION_DAYS` (14 by default), including the current one. New pushes sweep expired builds; the daily cron covers idle channels.
+- **A rejected hash check stores nothing.** The sha256 is checked before an object is written; this is integrity checking, not cryptographic origin authentication.
+- **A repeated push with identical bytes and identical `signature`/`mandatory` is a replay**, not a second release: the stored build is returned with `201`, without refreshing its creation time. Changing either metadata field creates a new release.
 - **A recorded bundle is served from the database, never by guessable key.** An object that is missing from storage answers `404 BUNDLE_UNAVAILABLE` rather than an empty file.
 
 ## Storage
@@ -93,34 +89,40 @@ The workspace configures where bundles live. Both modes are first-class; switchi
 | **ZeroHostCMS storage plan** | The storage adapter the site already has (R2 binding, S3-compatible endpoint or local directory, as configured in `astro.config.mjs`) | Nothing beyond a working site storage |
 | **Private R2 bucket** | The operator's own bucket, reached through its S3 endpoint | Endpoint, bucket, access key ID and secret access key |
 
-The private mode signs S3 requests itself (SigV4 on WebCrypto, no AWS SDK) so bundles never leave the Worker unencrypted, and a signed request's payload hash is the real bundle hash.
+The private mode authenticates HTTPS S3 requests using SigV4 on WebCrypto, without an AWS SDK. This storage authentication is separate from public release metadata and does not sign bundles for mobile.
 
 A private secret is written **encrypted** with AES-GCM under `OTA_SECRET_KEY` (32 bytes, `openssl rand -base64 32`); the plaintext is never persisted and is never returned to the browser — the workspace only reports whether a secret is stored. Losing that key means re-entering the secret, not losing bundles. Without the key, the storage-plan mode still works.
 
 ## Push tokens
 
-One bearer token per app, created under **Push tokens**. A token is stored only as a SHA-256 hash plus a display prefix, it is shown once at creation, and it can be revoked. A token is scoped to one app: a valid `unitel-man` token pushing to `unitel-logistics` is refused with `403` and the attempt is audited. Last use is recorded (throttled to once a minute).
+Bearer tokens are scoped to one app, created under **Push tokens**, stored as hashes, displayed once and individually revocable. Creating a new bearer does not revoke old ones. [Token and upload-key methods in the service](src/domain/service.ts) own the credential lifecycle.
+
+**Extra upload protection** in the same tab creates or rotates a private per-app upload key: 64 random bytes encoded as standard base64 (88 characters), hash-only persistence, one-time plaintext response. First creation enables the additional `X-OTA-Upload-Key` requirement for public POST releases; unconfigured apps keep existing bearer auth. Rotation invalidates the old key for newly authenticated pushes, not uploads already authenticated. Existing releases, anonymous downloads, list and DELETE are unchanged; session-authorized manual admin upload does not require this key.
+
+Admin key metadata is `GET /api/ota/upload-key?app=…`; first creation/rotation is `POST /api/ota/upload-key-rotate` with JSON `{app}`. The [handover](../../../zhst-community-themes/themes/ota-server/docs/ota-van-hanh.vi.md) owns the envelope/header examples and credential runbook. Never put the upload key in `signature`, the manifest or the mobile app.
 
 ## The workspace
 
-`/_emdash/admin/plugins/ota-server/workspace` requires `settings:manage`, is same-origin and CSRF-protected, and answers with a `{ok, data}` envelope. Tabs:
+The page requires `settings:manage`. Its `/api/ota/*` API uses the EmDash session, same-origin CSRF for writes and a `{ok, data}` envelope; [admin HTTP plumbing](src/http/shared.ts) and the [browser client](src/admin/client.ts) own those gates. Tabs:
 
-- **Releases** — filter by app, platform, channel and binary; see size, sha256, note, commit and age; copy a device URL; roll back to the previous build; delete one build; or upload a bundle manually (the server computes its sha256).
+- **Releases** — inspect release metadata, including public signature and mandatory status; copy a device URL; promote/rollback, delete or upload manually.
 - **Apps** — add, rename, enable or disable an app namespace.
-- **Push tokens** — create, list and revoke, with the plaintext shown once.
+- **Push tokens** — create, list and revoke bearer tokens; create/rotate extra per-app upload protection, with each credential shown once.
 - **Storage** — choose the mode, enter R2 credentials, test the backend (writes, reads back and deletes one probe object) and see the current mode and warnings.
 - **Activity** — the audit trail of pushes, replays, rollbacks, removals, expiries, token and storage changes.
 - **Integration** — the contract, a copy-paste publishing script and the retention rules.
 
 ## Data, upgrade and removal
 
-The plugin owns four tables (`ota_apps`, `ota_releases`, `ota_current`, `ota_tokens`, plus `ota_settings` and `ota_audit`) in a dedicated database. `ota_current` is a pointer per channel + binary rather than a flag on each row, which is what makes a push a single upsert instead of a race between competing unique indexes.
+The [migration directory](migrations/) owns the schema; [service](src/domain/service.ts) owns release/current-pointer changes. Prefer the theme's dedicated OTA database, with its CMS database kept separate.
 
-Migrations are forward-only and idempotent (`CREATE TABLE IF NOT EXISTS`), applied with `wrangler d1 migrations apply OTA_DB`. There is one migration today, so an upgrade is a no-op. Deactivating the plugin keeps every row and every object; removing the plugin registration keeps the data too. Dropping the database removes the metadata and leaves orphaned objects in the bucket — empty the bucket first if that matters, and note that removing a release is immediate and irreversible for devices that have not downloaded it yet.
+Apply every pending migration through Wrangler's migration tracking before running upgraded code. The metadata migration adds `signature` and `mandatory`; existing releases default to `""` and `false` on the wire. Do not replay `ALTER TABLE` manually or assume upgrades are no-ops. The [handover](../../../zhst-community-themes/themes/ota-server/docs/ota-van-hanh.vi.md) covers production config selection, backup/restore and database-binding fallback.
+
+Deactivation or removal of the plugin registration does not remove data or objects. Dropping the database leaves bucket objects behind. Release deletion removes its server download route but cannot retract bytes already downloaded by a device.
 
 ## Limits and unverified behaviour
 
-- The 100 MiB ceiling is the contract's; what a Worker can hold in memory is smaller (a 128 MB isolate). On Workers, keep bundles at or below ~64 MiB via `OTA_MAX_BUNDLE_BYTES`, or store them on a host with more memory. The plugin buffers one copy of the bundle to verify and upload it.
+- The application defaults to a 100 MiB ceiling; this is not a Worker memory guarantee. Bundle hashing/upload buffers bytes, and buffer growth can temporarily copy them. Choose a lower `OTA_MAX_BUNDLE_BYTES` appropriate to measured overhead and concurrency (about 64 MiB or less as an initial Worker constraint).
 - SigV4 is verified against the published AWS test vectors and a second implementation, but **no live R2 bucket was exercised** in this repository: the private mode needs the operator's own credentials. Treat the first push after configuring it as the acceptance test, then check the object and its size in the bucket.
 - Only the Cloudflare Workers host is provided. A Node host would need its own adapter wiring; the plugin's storage layer is runtime-portable.
 - Manifest reads hit the metadata database on every poll. That is deliberate (a manifest is never stale) and cheap for a dev-release server; add a cache only with a measured reason.
@@ -128,7 +130,7 @@ Migrations are forward-only and idempotent (`CREATE TABLE IF NOT EXISTS`), appli
 ## Tests
 
 ```sh
-npm test          # 65 tests
+npm test
 npm run check     # typecheck, tests, build
 ```
 

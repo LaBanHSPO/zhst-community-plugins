@@ -1,9 +1,15 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 
 const BINDING = "OTA_DB";
 
-export const migration = await readFile(new URL("../migrations/0001_ota.sql", import.meta.url), "utf8");
+const migrationDirectory = new URL("../migrations/", import.meta.url);
+export const migrations = await Promise.all(
+	(await readdir(migrationDirectory))
+		.filter((name) => /^\d+_.*\.sql$/.test(name))
+		.sort()
+		.map(async (name) => ({ name, sql: await readFile(new URL(name, migrationDirectory), "utf8") })),
+);
 
 /** A Miniflare worker exposing one D1 database, matching the theme's binding shape. */
 export function createTestRuntime(): Miniflare {
@@ -36,13 +42,19 @@ export async function setupDatabase(): Promise<{ mf: Miniflare; db: D1Database }
 	return { mf, db };
 }
 
-/** Apply the plugin migration the same way `wrangler d1 migrations apply` does. */
+/** Apply forward migrations in filename order, as `wrangler d1 migrations apply` does. */
 export async function migrate(db: D1Database): Promise<void> {
+	for (const migration of migrations) {
+		await applyMigration(db, migration.sql);
+	}
+}
+
+export async function applyMigration(db: D1Database, sql: string): Promise<void> {
 	await db.batch(
-		migration
+		sql
 			.split(";")
-			.map((sql) => sql.trim())
-			.filter((sql) => sql !== "" && !sql.startsWith("PRAGMA"))
-			.map((sql) => db.prepare(sql)),
+			.map((statement) => statement.trim())
+			.filter((statement) => statement !== "" && !statement.startsWith("PRAGMA"))
+			.map((statement) => db.prepare(statement)),
 	);
 }

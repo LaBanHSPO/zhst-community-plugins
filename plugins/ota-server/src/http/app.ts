@@ -123,6 +123,7 @@ async function push(
 ): Promise<Response> {
 	const { service } = serviceFor(runtime, null);
 	await service.authenticatePush(app, request.headers.get("authorization"));
+	await service.authenticateUploadKey(app, request.headers.get("x-ota-upload-key"));
 	assertDeclaredLength(request.headers.get("content-length"), maxBundleBytes);
 
 	const declared = Number(request.headers.get("content-length") ?? "0");
@@ -139,6 +140,8 @@ async function push(
 		sha256: form.fields.sha256 ?? "",
 		note: form.fields.note ?? "",
 		commit: form.fields.commit ?? "",
+		signature: form.fields.signature,
+		mandatory: form.fields.mandatory,
 	});
 
 	const release = await service.push(app, platform, {
@@ -147,6 +150,8 @@ async function push(
 		sha256: meta.sha256,
 		note: meta.note,
 		commit: meta.commit,
+		signature: meta.signature,
+		mandatory: meta.mandatory,
 		bytes: form.file.bytes,
 	});
 	return jsonResponse(manifestEntry(release), 201, {

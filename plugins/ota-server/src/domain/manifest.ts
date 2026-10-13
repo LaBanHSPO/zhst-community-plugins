@@ -15,6 +15,8 @@ export function manifestEntry(release: OtaRelease): OtaManifestEntry {
 		size: release.size,
 		note: release.note,
 		commit: release.commit,
+		signature: release.signature,
+		mandatory: release.mandatory,
 		branch: release.branch,
 		createdAt: release.createdAt,
 	};

@@ -51,7 +51,7 @@ async function expectError(promise: Promise<unknown>, code: string): Promise<Ota
 async function push(
 	target: OtaService,
 	payload: string,
-	overrides: Partial<{ channel: string; binary: string; note: string; commit: string; sha256: string }> = {},
+	overrides: Partial<{ channel: string; binary: string; note: string; commit: string; sha256: string; signature: string; mandatory: boolean }> = {},
 ) {
 	const bytes = encoder.encode(payload);
 	return target.push("unitel-man", "android", {
@@ -60,6 +60,8 @@ async function push(
 		sha256: overrides.sha256 ?? (await sha256Hex(bytes)),
 		note: overrides.note ?? "fix màn giao hàng",
 		commit: overrides.commit ?? "e39c6d34",
+		signature: overrides.signature,
+		mandatory: overrides.mandatory,
 		bytes,
 	});
 }
@@ -96,6 +98,8 @@ describe("manifest contract", () => {
 						size: 10,
 						note: "fix màn giao hàng",
 						commit: "e39c6d34",
+						signature: "",
+						mandatory: false,
 						branch: "ducnv/feature/luu-kho",
 						createdAt: "2026-10-08T02:15:00.000Z",
 					},
@@ -129,6 +133,63 @@ describe("manifest contract", () => {
 	it("rejects a disabled app", async () => {
 		await service.saveApp({ slug: "unitel-man", name: "Unitel Man", enabled: false });
 		await expectError(service.manifest("unitel-man", "android"), "APP_DISABLED");
+	});
+});
+
+describe("release metadata", () => {
+	const signature = btoa(String.fromCharCode(...new Uint8Array(64).fill(255)));
+	const otherSignature = btoa(String.fromCharCode(...new Uint8Array(64).fill(254)));
+
+	it("persists exact signature text and integer flags, and reads boolean metadata after rollback", async () => {
+		const first = await push(service, "first", { signature, mandatory: true });
+		assert.equal(first.signature, signature);
+		assert.equal(first.mandatory, true);
+		const stored = await db.prepare("SELECT signature, mandatory FROM ota_releases WHERE id = ?")
+			.bind(first.id).first<{ signature: string; mandatory: number }>();
+		assert.deepEqual(stored, { signature, mandatory: 1 });
+		assert.deepEqual(await service.findByFile("unitel-man", "android", first.file), first);
+		const listed = await service.listReleases({ app: "unitel-man" });
+		assert.equal(listed.items[0]?.signature, signature);
+		assert.equal(listed.items[0]?.mandatory, true);
+
+		clock += 1000;
+		const second = await push(service, "second", { signature: otherSignature, mandatory: false });
+		assert.equal(second.mandatory, false);
+		assert.equal((await service.manifest("unitel-man", "android")).channels[first.channel]?.[first.binary]?.mandatory, false);
+		await service.promoteRelease({ id: first.id });
+		assert.deepEqual(
+			(await service.manifest("unitel-man", "android")).channels[first.channel]?.[first.binary],
+			manifestEntry(first),
+		);
+	});
+
+	it("creates new releases for changed signature or mandatory despite identical bytes, but replays matching metadata", async () => {
+		const first = await push(service, "same", { signature, mandatory: false });
+		clock += 1000;
+		const changedSignature = await push(service, "same", { signature: otherSignature, mandatory: false });
+		assert.notEqual(changedSignature.id, first.id);
+		assert.equal(changedSignature.signature, otherSignature);
+		clock += 1000;
+		const changedMandatory = await push(service, "same", { signature: otherSignature, mandatory: true });
+		assert.notEqual(changedMandatory.id, changedSignature.id);
+		assert.equal(changedMandatory.mandatory, true);
+		const replay = await push(service, "same", { signature: otherSignature, mandatory: true });
+		assert.equal(replay.id, changedMandatory.id);
+		const count = await db.prepare("SELECT COUNT(*) AS n FROM ota_releases").first<{ n: number }>();
+		assert.equal(count?.n, 2);
+		assert.equal(blobs.objects.size, 2);
+	});
+
+	it("defaults omitted metadata for direct callers and rejects invalid domain metadata before storage", async () => {
+		const release = await push(service, "legacy-client");
+		assert.equal(release.signature, "");
+		assert.equal(release.mandatory, false);
+		await assert.rejects(push(service, "bad", { signature: "not base64" }), { name: "ZodError" });
+		await assert.rejects(
+			push(service, "bad", { mandatory: "false" as unknown as boolean }),
+			{ name: "ZodError" },
+		);
+		assert.equal(blobs.objects.size, 1);
 	});
 });
 
