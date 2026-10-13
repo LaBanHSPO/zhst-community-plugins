@@ -1,5 +1,6 @@
 import { apiFetch, parseApiResponse } from 'emdash/plugin-utils';
 import type { ApiResult, Currency } from '../model.js';
+import type { AccountingAction } from '../accounting/model.js';
 
 export class RequestError extends Error {
   constructor(public readonly code: string, message: string) {
@@ -8,8 +9,8 @@ export class RequestError extends Error {
   }
 }
 
-export async function request<T>(route: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await apiFetch(`/_emdash/api/plugins/erp-mini/${route}`, {
+export async function request<T>(route: string, body?: unknown, signal?: AbortSignal, base = '/_emdash/api/plugins/erp-mini'): Promise<T> {
+  const response = await apiFetch(`${base}/${route}`, {
     method: body === undefined ? 'GET' : 'POST',
     credentials: 'same-origin',
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
@@ -17,9 +18,13 @@ export async function request<T>(route: string, body?: unknown, signal?: AbortSi
     signal,
   });
   const result = await parseApiResponse<ApiResult<T>>(response, 'ERP request failed');
-  if (!result || typeof result.ok !== 'boolean') throw new Error('The server returned an unexpected response. Reload and try again.');
+  if (!result || typeof result.ok !== 'boolean' || (result.ok ? !('data' in result) : !result.error || typeof result.error.code !== 'string' || typeof result.error.message !== 'string')) throw new Error('The server returned an unexpected response. Reload and try again.');
   if (!result.ok) throw new RequestError(result.error.code, result.error.message);
   return result.data;
+}
+
+export function accountingRequest<T>(route: AccountingAction, body?: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>(route, body, signal, '/api/erp-mini/accounting');
 }
 
 export function errorMessage(error: unknown): string {

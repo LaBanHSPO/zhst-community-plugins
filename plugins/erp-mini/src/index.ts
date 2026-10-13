@@ -3,7 +3,7 @@ import type { ApiResult, Currency } from './model.js';
 import { ErpService } from './service.js';
 import { ErpError } from './validation.js';
 
-export interface ErpMiniOptions { currency?: Currency }
+export interface ErpMiniOptions { currency?: Currency; accounting?: boolean }
 const pages = [{ path: '/workspace', label: 'ERP mini' }];
 
 export function erpMiniPlugin(options: ErpMiniOptions = {}): PluginDescriptor<ErpMiniOptions> {
@@ -36,7 +36,7 @@ export function createPlugin(options: ErpMiniOptions = {}) {
     },
     admin: { pages },
     routes: {
-      info: definePluginRoute({ methods: ['GET'], permission: 'plugins:manage', request: { body: 'none' }, handler: (ctx) => execute(ctx, 'GET', (service) => service.info()) }),
+      info: definePluginRoute({ methods: ['GET'], permission: 'plugins:manage', request: { body: 'none' }, handler: (ctx) => execute(ctx, 'GET', async (service) => ({ ...await service.info(), accounting: options.accounting === true })) }),
       list: definePluginRoute({ methods: ['POST'], permission: 'plugins:manage', request: { body: 'json', maxBytes: 4096 }, handler: (ctx) => execute(ctx, 'POST', (service) => service.list(ctx.input)) }),
       get: definePluginRoute({ methods: ['POST'], permission: 'plugins:manage', request: { body: 'json', maxBytes: 4096 }, handler: (ctx) => execute(ctx, 'POST', (service) => service.get(ctx.input)) }),
       'save-customer': definePluginRoute({ methods: ['POST'], permission: 'plugins:manage', request: { body: 'json', maxBytes: 65536 }, handler: (ctx) => execute(ctx, 'POST', (service) => service.saveCustomer(ctx.input)) }),

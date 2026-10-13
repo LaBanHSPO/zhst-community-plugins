@@ -10,9 +10,9 @@ No private hosting-platform checkout, platform credentials, customer data, or cl
 
 ## ERP mini customer forks
 
-The [ERP mini plugin](plugins/erp-mini/README.md) adds private customers/contacts, items/services, quotations and sales-order conversion to upstream EmDash. Use the companion community theme as its standalone host. The [ERPNext adaptation guide](plugins/erp-mini/docs/porting.md) covers workflow mapping, customer-isolated forks and AI-assisted development; [compatibility operations](plugins/erp-mini/docs/compatibility.md) cover daily core checks and reviewed upgrades.
+The [ERP mini plugin](plugins/erp-mini/README.md) adds private customers/contacts, items/services, quotations and sales-order conversion to upstream EmDash, plus internal VND bookkeeping on the paired Node host. Use the companion community theme as its standalone host. The [ERPNext adaptation guide](plugins/erp-mini/docs/porting.md) covers workflow mapping and customer-isolated forks; [compatibility operations](plugins/erp-mini/docs/compatibility.md) cover paired core checks and reviewed upgrades.
 
-This is an independent TypeScript implementation, not a Frappe runtime or ERPNext connector. Its EmDash 1.2.0 baseline is separate from the existing hosting-platform 1.1.0 baseline. It does not include accounting, tax, inventory ledgers or automatic hosting-catalog registration.
+This is an independent TypeScript implementation, not a Frappe runtime or ERPNext connector. Its EmDash 1.2.0 baseline is separate from the existing hosting-platform 1.1.0 baseline. Internal bookkeeping is not statutory accounting or tax certification; inventory ledgers and automatic hosting-catalog registration remain outside scope. Cloudflare retains CRM/sales without accounting.
 
 ## Restaurant chain
 
