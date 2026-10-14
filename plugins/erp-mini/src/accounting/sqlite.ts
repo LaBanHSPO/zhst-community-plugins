@@ -8,8 +8,8 @@ import type { AccountingStore, SqlParameter, WriteResult } from './store.js';
 const BUSY_TIMEOUT_MS = 250;
 const schemaQuery = "SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name";
 interface SchemaRow { type: string; name: string; tbl_name: string; sql: string }
-interface Migration { sql: string; checksum: string; schema: SchemaRow[] }
-let shipped: Migration | undefined;
+interface Migration { version: number; sql: string; checksum: string; schema: SchemaRow[] }
+let shipped: Migration[] | undefined;
 
 function database(filename: string): DatabaseSync {
   // The pinned Node type declarations predate defensive; supported engines implement it.
@@ -18,34 +18,45 @@ function database(filename: string): DatabaseSync {
   (db as DatabaseSync & { enableDefensive(active: boolean): void }).enableDefensive(true);
   return db;
 }
-function migration(): Migration {
+function migrations(): Migration[] {
   if (shipped) return shipped;
-  // Both src/accounting/sqlite.ts and dist/accounting/sqlite.mjs sit two levels below the package root.
-  const location = new URL('../../migrations/0001_accounting.sql', import.meta.url);
-  if (!existsSync(location)) throw new ErpError('SCHEMA_VERSION', 'The accounting migration artifact is missing. Install a complete approved package.');
-  const sql = readFileSync(location, 'utf8');
+  // Source and built modules both sit two levels below the package root.
+  const artifacts = ['0001_accounting.sql', '0002_coa_import.sql'].map((name, index) => {
+    const location = new URL(`../../migrations/${name}`, import.meta.url);
+    if (!existsSync(location)) throw new ErpError('SCHEMA_VERSION', 'An accounting migration artifact is missing. Install a complete approved package.');
+    const sql = readFileSync(location, 'utf8');
+    return { version: index + 1, sql, checksum: createHash('sha256').update(sql).digest('hex') };
+  });
   const reference = database(':memory:');
   try {
-    reference.exec(sql);
-    shipped = { sql, checksum: createHash('sha256').update(sql).digest('hex'), schema: reference.prepare(schemaQuery).all() as unknown as SchemaRow[] };
-    return shipped;
+    // Use the same rebuild SQL and final table names as the durable upgrade.
+    reference.exec('PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE;');
+    const chain = artifacts.map((artifact) => {
+      reference.exec(artifact.sql);
+      return { ...artifact, schema: reference.prepare(schemaQuery).all() as unknown as SchemaRow[] };
+    });
+    reference.exec('COMMIT; PRAGMA foreign_keys=ON;');
+    shipped = chain;
+    return chain;
   } finally { reference.close(); }
 }
 function schemaError(): never {
   throw new ErpError('SCHEMA_VERSION', 'The accounting schema is missing or incompatible. Run the explicit migration with its matching approved artifact.');
 }
-function verify(db: DatabaseSync, expected: Migration, allowEmpty: boolean): boolean {
+function verify(db: DatabaseSync, chain: Migration[], allowEmpty: boolean): number {
   const rows = db.prepare(schemaQuery).all() as unknown as SchemaRow[];
-  if (rows.length === 0) { if (allowEmpty) return false; schemaError(); }
-  if (!rows.some((row) => row.type === 'table' && row.name === 'erp_ac_migrations')) schemaError();
-  if (rows.length !== expected.schema.length || rows.some((row, index) => {
-    const other = expected.schema[index];
-    return !other || row.type !== other.type || row.name !== other.name || row.tbl_name !== other.tbl_name || row.sql !== other.sql;
-  })) schemaError();
+  if (rows.length === 0) { if (allowEmpty) return 0; schemaError(); }
+  const expected = chain.find((artifact) => rows.length === artifact.schema.length && rows.every((row, index) => {
+    const other = artifact.schema[index];
+    return other && row.type === other.type && row.name === other.name && row.tbl_name === other.tbl_name && row.sql === other.sql;
+  }));
+  if (!expected) schemaError();
   const applied = db.prepare('SELECT version,checksum FROM erp_ac_migrations ORDER BY version').all();
-  if (applied.length !== 1 || applied[0]?.version !== 1 || applied[0]?.checksum !== expected.checksum) schemaError();
+  if (applied.length !== expected.version || applied.some((row, index) =>
+    row.version !== chain[index]?.version || row.checksum !== chain[index]?.checksum
+  )) schemaError();
   if (db.prepare('PRAGMA foreign_key_check').get()) schemaError();
-  return true;
+  return applied.length;
 }
 const assertionCodes: Record<string, true> = {
   BOOK_IMMUTABLE: true, AUDIT_IMMUTABLE: true, COMMAND_IMMUTABLE: true, INVALID_RECEIPT: true,
@@ -53,6 +64,7 @@ const assertionCodes: Record<string, true> = {
   ACCOUNT_HISTORY: true, PARTY_HISTORY: true, BOOK_REQUIRED: true, INVALID_SEQUENCE: true,
   UNBALANCED: true, INVALID_SNAPSHOT: true, OVER_ALLOCATION: true, ALLOCATION_DATE_CONFLICT: true,
   INVALID_REVERSAL: true, ACTIVE_SETTLEMENT: true, INVALID_SETTLEMENT: true,
+  COA_IMPORT_IMMUTABLE: true, IDEMPOTENCY_CONFLICT: true,
 };
 function safeError(error: unknown): Error {
   if (error instanceof ErpError) return error;
@@ -121,33 +133,44 @@ class SqliteAccountingStore implements AccountingStore {
 
 export function openAccountingDatabase(filename: string): AccountingStore {
   if (filename === ':memory:' || !existsSync(filename)) schemaError();
-  const expected = migration();
+  const chain = migrations();
   let db: DatabaseSync | undefined;
   try {
     db = database(filename);
-    verify(db, expected, false);
+    if (verify(db, chain, false) !== chain.length) schemaError();
     db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA trusted_schema=OFF; PRAGMA recursive_triggers=ON;');
     return new SqliteAccountingStore(db);
   } catch (error) { db?.close(); throw safeError(error); }
 }
 export function migrateAccountingDatabase(filename: string): void {
   if (filename === ':memory:') throw new ErpError('INVALID_INPUT', 'Accounting migrations require a durable database filename.');
-  const expected = migration();
+  const chain = migrations();
   let db: DatabaseSync | undefined;
   try {
     db = database(filename);
-    // Inspect before any persistent pragma/schema mutation, then repeat under the write lock.
-    if (verify(db, expected, true)) return;
+    // Fail closed before changing persistent state. Recheck after taking the lock.
+    if (verify(db, chain, true) === chain.length) return;
+    // Only this private migration connection disables FK enforcement, and only
+    // outside the transaction. Runtime connections always keep it enabled.
+    db.exec('PRAGMA foreign_keys=OFF;');
+    if (db.prepare('PRAGMA foreign_keys').get()?.foreign_keys !== 0) schemaError();
     db.exec('BEGIN IMMEDIATE');
-    if (!verify(db, expected, true)) {
-      db.exec(expected.sql);
-      db.prepare('INSERT INTO erp_ac_migrations(version,checksum,appliedAt) VALUES(1,?,?)').run(expected.checksum, new Date().toISOString());
-      verify(db, expected, false);
+    const prefix = verify(db, chain, true);
+    for (const artifact of chain.slice(prefix)) {
+      db.exec(artifact.sql);
+      db.prepare('INSERT INTO erp_ac_migrations(version,checksum,appliedAt) VALUES(?,?,?)').run(artifact.version, artifact.checksum, new Date().toISOString());
     }
+    // Exact schema, complete checksum chain and all surviving foreign keys must
+    // pass while rollback still restores the entire previous prefix.
+    if (verify(db, chain, false) !== chain.length) schemaError();
     db.exec('COMMIT');
-    db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;');
+    db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   } catch (error) {
     if (db) { try { rollback(db); } catch {} }
     throw safeError(error);
-  } finally { db?.close(); }
+  } finally {
+    if (db) {
+      try { db.exec('PRAGMA foreign_keys=ON;'); } finally { db.close(); }
+    }
+  }
 }

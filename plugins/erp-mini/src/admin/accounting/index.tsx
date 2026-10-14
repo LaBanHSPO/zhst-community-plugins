@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AccountingInfo, Account, Party, Journal, JournalStatus, AccountingListInput, FinancialResult } from '../../accounting/model.js';
+import type { AccountingInfo, Account, Party, Journal, JournalStatus, AccountingListInput, FinancialResult, CoaImportResult } from '../../accounting/model.js';
 import type { RecordView } from '../../model.js';
 import { accountingRequest } from '../api.js';
 import { Failure, Field, Search, useMutation } from '../shared.js';
@@ -13,6 +13,9 @@ import { SettlementEditor } from './settlements.js';
 import { Reports } from './reports.js';
 import { FinancialIntentNotice, useFinancialIntent } from './intent.js';
 import type { FinancialCommands } from './intent.js';
+import { CoaImportPanel } from './coa-import.js';
+import { CoaImportIntentNotice, useCoaImportIntent } from './coa-import-intent.js';
+import type { RefObject } from 'react';
 
 type Section = 'accounts' | 'parties' | 'journals' | 'receipt' | 'payment' | 'reports';
 type Selection = { entity: 'accounts' | 'parties' | 'journals'; id: string; creating: boolean; kind?: 'journal' | 'opening' | 'receipt' | 'payment'; key: string };
@@ -69,8 +72,9 @@ function RecordPanel({ selection, startDate, onBlock, onLoading, allowLeave, onC
   </section>;
 }
 
-function RecordList({ entity, refresh, onLoading, onOpen, onCreate }: {
+function RecordList({ entity, refresh, onLoading, onOpen, onCreate, onImport, importLauncher }: {
   entity: 'accounts' | 'parties' | 'journals'; refresh: number; onLoading: WorkspaceProps['onLoading']; onOpen: (id: string) => void; onCreate: (kind?: 'journal' | 'opening') => void;
+  onImport?: () => void; importLauncher?: RefObject<HTMLButtonElement | null>;
 }) {
   const [search, setSearch] = useState('');
   const [active, setActive] = useState('active');
@@ -79,7 +83,7 @@ function RecordList({ entity, refresh, onLoading, onOpen, onCreate }: {
   const master = entity !== 'journals';
   const filter: AccountingListInput = master ? { entity, search: search || undefined, active: active === 'all' ? undefined : active === 'active', kind: entity === 'parties' && partyKind !== 'all' ? partyKind as 'customer' | 'supplier' : undefined } : { entity, status: status === 'all' ? undefined : status as JournalStatus };
   return <section aria-label={sectionLabels[entity]}>
-    <div className="erp-section-heading"><h2>{sectionLabels[entity]}</h2><div className="erp-actions"><button className="erp-primary" type="button" onClick={() => onCreate(entity === 'journals' ? 'journal' : undefined)}>New {entity === 'accounts' ? 'account' : entity === 'parties' ? 'party' : 'journal'}</button>{entity === 'journals' && <button type="button" onClick={() => onCreate('opening')}>New opening journal</button>}</div></div>
+    <div className="erp-section-heading"><h2>{sectionLabels[entity]}</h2><div className="erp-actions"><button className="erp-primary" type="button" onClick={() => onCreate(entity === 'journals' ? 'journal' : undefined)}>New {entity === 'accounts' ? 'account' : entity === 'parties' ? 'party' : 'journal'}</button>{entity === 'accounts' && <button type="button" ref={importLauncher} onClick={onImport}>Nhập từ bộ tài khoản mẫu</button>}{entity === 'journals' && <button type="button" onClick={() => onCreate('opening')}>New opening journal</button>}</div></div>
     <div className="erp-toolbar">{master ? <><Search value={search} onChange={setSearch} label="Search code / name" /><Field label="Availability"><select value={active} onChange={(event) => setActive(event.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option><option value="all">All</option></select></Field>{entity === 'parties' && <Field label="Party role"><select value={partyKind} onChange={(event) => setPartyKind(event.target.value)}><option value="all">All</option><option value="customer">Customer</option><option value="supplier">Supplier</option></select></Field>}</> : <Field label="Journal status"><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All history</option><option value="draft">Draft</option><option value="posted">Posted</option><option value="cancelled">Cancelled</option></select></Field>}</div>
     <AccountingPaged<AccountingRecord> key={`${JSON.stringify(filter)}:${refresh}`} filter={filter} onLoading={onLoading}>{(page) => <div className="erp-table-scroll" role="region" aria-label={`${sectionLabels[entity]} table`} tabIndex={0}><table><caption>{sectionLabels[entity]} · 25 per page</caption><thead><tr><th>{master ? 'Code / name' : 'Date / number'}</th><th>Type / structure</th><th>Status</th><th>Action</th></tr></thead><tbody>{page.items.map((entry) => {
       const value = entry.value;
@@ -93,33 +97,52 @@ function RecordList({ entity, refresh, onLoading, onOpen, onCreate }: {
 function ConfiguredWorkspace({ info, onBlock, onLoading, allowLeave }: WorkspaceProps & { info: AccountingInfo & { book: NonNullable<AccountingInfo['book']> } }) {
   const [section, setSection] = useState<Section>('accounts');
   const [selection, setSelection] = useState<Selection>();
+  const [importOpen, setImportOpen] = useState(false);
+  const [importResult, setImportResult] = useState<CoaImportResult>();
+  const importLauncher = useRef<HTMLButtonElement>(null);
   const [refresh, setRefresh] = useState(0);
   const [receipt, setReceipt] = useState<FinancialResult>();
   const block = useRef<BlockState>({ dirty: false, pending: false });
   const blocked = useRef(false);
   const commands = useFinancialIntent(info.book.value.installationId, (result) => {
-    setReceipt(result);
+    setReceipt(result); setImportOpen(false);
     setSelection({ entity: 'journals', id: result.id, creating: false, key: crypto.randomUUID() });
     setRefresh((value) => value + 1);
   });
-  blocked.current = commands.blocked;
+  const imports = useCoaImportIntent(info.book.value.installationId, (result) => {
+    setImportResult(result); setSection('accounts'); setSelection(undefined); setImportOpen(true);
+    setRefresh((value) => value + 1);
+  });
+  const workspaceBlocked = commands.blocked || imports.blocked;
+  blocked.current = workspaceBlocked;
+  const financialCommands = { ...commands, blocked: workspaceBlocked };
   const editorBlock = useCallback((value: BlockState) => { block.current = value; onBlock({ dirty: value.dirty || blocked.current, pending: value.pending || blocked.current }); }, [onBlock]);
-  useEffect(() => { onBlock({ dirty: block.current.dirty || commands.blocked, pending: block.current.pending || commands.blocked }); }, [commands.blocked, onBlock]);
+  useEffect(() => { onBlock({ dirty: block.current.dirty || workspaceBlocked, pending: block.current.pending || workspaceBlocked }); }, [workspaceBlocked, onBlock]);
   useEffect(() => () => onBlock({ dirty: false, pending: false }), [onBlock]);
-  function canNavigate() { if (commands.blocked) { window.alert('Reconcile the retained financial command before changing this intent or leaving.'); return false; } return allowLeave(); }
-  function openJournal(id: string) { if (!canNavigate()) return; setSelection({ entity: 'journals', id, creating: false, key: crypto.randomUUID() }); }
-  function create(entity: Selection['entity'], kind?: Selection['kind']) { if (!canNavigate()) return; setSelection({ entity, id: crypto.randomUUID(), creating: true, kind, key: crypto.randomUUID() }); }
+  function canNavigate() {
+    if (workspaceBlocked) { window.alert('Reconcile the retained accounting command before changing this intent or leaving.'); return false; }
+    return allowLeave();
+  }
+  function openJournal(id: string) { if (!canNavigate()) return; setImportOpen(false); setSelection({ entity: 'journals', id, creating: false, key: crypto.randomUUID() }); }
+  function openAccount(id: string) { if (!canNavigate()) return; setImportOpen(false); setSection('accounts'); setSelection({ entity: 'accounts', id, creating: false, key: crypto.randomUUID() }); }
+  function create(entity: Selection['entity'], kind?: Selection['kind']) { if (!canNavigate()) return; setImportOpen(false); setSelection({ entity, id: crypto.randomUUID(), creating: true, kind, key: crypto.randomUUID() }); }
+  function closeImport() {
+    if (!canNavigate()) return;
+    setImportOpen(false);
+    window.requestAnimationFrame(() => importLauncher.current?.focus());
+  }
   return <>
     <header className="erp-section-heading"><div><h2>Internal VND book</h2><p className="erp-muted">Starts {info.book.value.startDate} · Whole dong · Separate from CRM/sales; orders never post automatically.</p></div></header>
     <FinancialIntentNotice state={commands} />
+    <CoaImportIntentNotice state={imports} />
     {receipt && <p className="erp-notice" role="status">Financial receipt: journal {receipt.id} · sequence {receipt.postedSequence}. Current journal history is loaded separately below.</p>}
-    <nav className="erp-actions" aria-label="Accounting sections">{(Object.keys(sectionLabels) as Section[]).map((value) => <button type="button" key={value} className={section === value ? 'erp-primary' : undefined} aria-pressed={section === value} disabled={commands.blocked} onClick={() => {
+    <nav className="erp-actions" aria-label="Accounting sections">{(Object.keys(sectionLabels) as Section[]).map((value) => <button type="button" key={value} className={section === value ? 'erp-primary' : undefined} aria-pressed={section === value} disabled={workspaceBlocked} onClick={() => {
       if (!canNavigate()) return;
-      setSection(value); setSelection(undefined); setReceipt(undefined);
+      setSection(value); setSelection(undefined); setReceipt(undefined); setImportOpen(false);
       if (value === 'receipt' || value === 'payment') setSelection({ entity: 'journals', id: crypto.randomUUID(), creating: true, kind: value, key: crypto.randomUUID() });
     }}>{sectionLabels[value]}</button>)}</nav>
     {section === 'reports' && <div hidden={Boolean(selection)}><Reports onLoading={onLoading} onOpenJournal={openJournal} /></div>}
-    {selection ? <RecordPanel key={selection.key} selection={selection} startDate={info.book.value.startDate} onBlock={editorBlock} onLoading={onLoading} allowLeave={allowLeave} commands={commands} onClose={() => { if (canNavigate()) { setSelection(undefined); if (section === 'receipt' || section === 'payment') setSection('journals'); } }} onChanged={() => setRefresh((value) => value + 1)} onOpenJournal={openJournal} /> : (section === 'accounts' || section === 'parties' || section === 'journals') && <RecordList key={section} entity={section} refresh={refresh} onLoading={onLoading} onOpen={(id) => { if (canNavigate()) setSelection({ entity: section, id, creating: false, key: crypto.randomUUID() }); }} onCreate={(kind) => create(section, kind)} />}
+    {importOpen ? <CoaImportPanel commands={{ ...imports, blocked: workspaceBlocked }} result={importResult} onBlock={editorBlock} onLoading={onLoading} onClose={closeImport} onOpenAccount={openAccount} /> : selection ? <RecordPanel key={selection.key} selection={selection} startDate={info.book.value.startDate} onBlock={editorBlock} onLoading={onLoading} allowLeave={allowLeave} commands={financialCommands} onClose={() => { if (canNavigate()) { setSelection(undefined); if (section === 'receipt' || section === 'payment') setSection('journals'); } }} onChanged={() => setRefresh((value) => value + 1)} onOpenJournal={openJournal} /> : (section === 'accounts' || section === 'parties' || section === 'journals') && <fieldset className="erp-unframed" disabled={workspaceBlocked}><RecordList key={section} entity={section} refresh={refresh} onLoading={onLoading} onOpen={(id) => { if (canNavigate()) setSelection({ entity: section, id, creating: false, key: crypto.randomUUID() }); }} onCreate={(kind) => create(section, kind)} importLauncher={importLauncher} onImport={() => { if (canNavigate()) { setSelection(undefined); setImportOpen(true); } }} /></fieldset>}
   </>;
 }
 

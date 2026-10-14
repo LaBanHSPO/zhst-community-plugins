@@ -91,6 +91,10 @@ The [business contract](docs/accounting.md) owns the accepted bookkeeping requir
 
 Public entry points are declared in [`package.json`](package.json): `./accounting` is the pure domain/HTTP export; `./accounting-node` owns the Node SQLite driver and checksummed schema migrations. The paired host owns authenticated routes and resource lifecycle. Enablement is not book setup: schema migration precedes an administrator's explicit immutable start-date setup, accounts and opening entries. No chart of accounts or business balances are seeded automatically, and VND support is not Vietnamese legal certification.
 
+After book setup, **Accounting → Accounts → Nhập từ bộ tài khoản mẫu** offers the complete offline **TT133/2016** and **TT99/2025** catalogs (dataset version `"1"`). Choose the regime explicitly, select all or ledger subsets, preview ancestors/conflicts, then confirm. Import is atomic and create-only; it never overwrites existing accounts, converts regimes, posts journals or adds foreign-currency/statutory-report support. Uncertain outcomes retain the exact session command for reconciliation after reload. See the [catalog/import contract](docs/accounting.md#311-bộ-mẫu-việt-nam-và-phân-loại).
+
+This release requires accounting **schema2**. Startup upgrades an exact checksummed schema1 without changing business history; `result` classifies account911 and import receipts are separate from journal receipts. Stop old writers and take the [paired SQLite-aware backup](docs/accounting-storage.md#schema1--schema2) **before starting** the rebuilt plugin/host pair. Upgrade is forward-only: older schema1 code cannot open schema2; rollback restores its matching DB/code backup, not a down-migration. Record/book format versions remain1.
+
 ## Pack and distribute an approved native plugin
 
 After the source and dependency review, run from this package:

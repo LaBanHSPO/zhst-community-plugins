@@ -69,7 +69,7 @@ test('fresh schema is explicit and empty; rerun preserves migration and runtime 
 });
 
 test('checksums, newer versions, unknown and missing schema objects fail without changing data', (t) => {
-  for (const mutation of ["UPDATE erp_ac_migrations SET checksum='0000000000000000000000000000000000000000000000000000000000000000'", 'UPDATE erp_ac_migrations SET version=2', 'CREATE TABLE foreign_data(value TEXT) STRICT', 'DROP TRIGGER erp_ac_settings_update']) {
+  for (const mutation of ["UPDATE erp_ac_migrations SET checksum='0000000000000000000000000000000000000000000000000000000000000000'", 'UPDATE erp_ac_migrations SET version=3 WHERE version=2', 'CREATE TABLE foreign_data(value TEXT) STRICT', 'DROP TRIGGER erp_ac_settings_update']) {
     const { filename, store } = fixture(t);
     store.close();
     const raw = new DatabaseSync(filename);
@@ -84,7 +84,7 @@ test('checksums, newer versions, unknown and missing schema objects fail without
   }
 });
 
-test('migration failure after schema creation rolls back all DDL and can be retried', (t) => {
+test('migration failure after schema creation rolls back all DDL and recovers a usable latest schema', async (t) => {
   const { directory } = fixture(t); // Loads the shipped artifact before injecting an execution fault.
   const filename = join(directory, 'interrupted.db');
   const original = DatabaseSync.prototype.exec;
@@ -104,8 +104,15 @@ test('migration failure after schema creation rolls back all DDL and can be retr
   raw.close();
   migrateAccountingDatabase(filename);
   const recovered = openAccountingDatabase(filename);
-  assert.equal(recovered.get<{ count: number }>('SELECT count(*) AS count FROM erp_ac_migrations')?.count, 1);
-  recovered.close();
+  try {
+    assert.deepEqual(recovered.all<{ version: number }>('SELECT version FROM erp_ac_migrations ORDER BY version').map((row) => row.version), [1, 2]);
+    assert.deepEqual(recovered.all('PRAGMA foreign_key_check'), []);
+    const service = new AccountingService(recovered, 'admin-1', now);
+    await service.configureBook({ startDate: '2030-01-01' });
+    const account = await service.saveAccount({ id: globalThis.crypto.randomUUID(), revision: null, code: '911', name: 'Synthetic result', rootType: 'result', purpose: 'general', isGroup: false, parentId: null, active: true });
+    assert.equal(account.value.rootType, 'result');
+    assert.deepEqual((await service.get({ entity: 'accounts', id: account.id })).value, account.value);
+  } finally { recovered.close(); }
 });
 
 test('setup validates real calendar input and creates immutable server metadata and audit once', async (t) => {

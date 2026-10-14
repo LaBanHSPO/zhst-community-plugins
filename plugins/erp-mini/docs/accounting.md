@@ -20,18 +20,72 @@ Các lựa chọn bên dưới là **quyết định phạm vi accounting nội 
 - Runtime triển khai được chọn: Node SQLite local/standalone. Cloudflare CRM/sales hiện hữu được giữ; accounting Cloudflare không được quảng cáo là supported. Không cần cloud credentials hay deployment.
 - Non-goals: VAT/tax, hóa đơn điện tử, invoice pháp định, tồn kho/giá vốn, ngoại tệ, payroll, tự ghi sổ từ order, hợp nhất công ty, fiscal closing và báo cáo pháp định.
 - Thu/trả vượt nợ, ứng trước, bù trừ công nợ và nghiệp vụ giảm nợ không qua đảo chưa nằm trong luồng thu/chi đã chọn; lệnh ngoài phạm vi phải bị từ chối rõ, không tự biến thành doanh thu/chi phí. Bút toán tổng quát không có công nợ vẫn dùng được.
-- Không chọn bộ mã tài khoản theo một chế độ pháp định. Tài khoản nội bộ do người vận hành thiết lập; fixture dùng mã mô tả, không tự nhận là localization Việt Nam.
+- Người vận hành có thể thiết lập tài khoản thủ công hoặc chọn **TT133/2016** / **TT99/2025** từ bộ mẫu đóng gói, chọn toàn bộ hoặc subset rồi xem trước và nhập. Không chọn chế độ ngầm từ ngày máy/ngày bắt đầu sổ, không seed lúc install/startup và không chuyển đổi chế độ kế toán của doanh nghiệp.
 
 ## 3. Quy trình và thông tin
 
 ### 3.1. Thiết lập sổ và tài khoản
 
 - Chọn ngày bắt đầu sổ `startDate` một lần trên installation accounting mới; không đổi ngày/currency qua settings, kể cả trước bút toán đầu tiên. Muốn thay đổi phải có kế hoạch migration riêng.
-- Tài khoản có ID ổn định, code duy nhất sau chuẩn hóa, tên, root type asset/liability/equity/income/expense, group/ledger, parent, active và purpose general/cash/bank/receivable/payable.
+- Tài khoản có ID ổn định, code duy nhất sau chuẩn hóa, tên, root type asset/liability/equity/income/expense/result, group/ledger, parent, active và purpose general/cash/bank/receivable/payable.
 - Group không nhận bút toán; parent phải là group cùng root type; không được tạo chu kỳ cây. Không có parent chuyển root ngầm.
 - Purpose cash/bank/receivable chỉ cho ledger root asset; payable chỉ cho ledger root liability. Group chỉ purpose general. Không cho purpose sai root khiến báo cáo tiền/công nợ bị phân loại sai.
 - Sửa tên/code giữ ID và snapshot lịch sử. Khi tài khoản có lịch sử, không đổi root/purpose/group/parent; có thể ngừng dùng. Không hard-delete tài khoản được tham chiếu.
 - Disabled tài khoản chặn chứng từ mới, nhưng vẫn hiện báo cáo/lịch sử. Đảo chính xác chứng từ cũ vẫn được phép với account/party đã disabled; không cho mượn ngoại lệ này để post bút toán mới tùy ý.
+
+#### 3.1.1. Bộ mẫu Việt Nam và phân loại
+
+Owners: [`coa.ts`](../src/accounting/coa.ts), [`coa-tt133.ts`](../src/accounting/coa-tt133.ts), [`coa-tt99.ts`](../src/accounting/coa-tt99.ts). Dataset version **`"1"`** độc lập DB schema và record format. Thư viện offline chứa đầy đủ các cấp chính thức, không lấy mã trong ví dụ định khoản làm tài khoản con:
+
+| Template ID | Danh mục | Hiệu lực / áp dụng |
+| --- | --- | --- |
+| `vn-tt133-2016` | 123 tài khoản, 49 cấp1; Phụ lục 1 | Hiệu lực 01/01/2017; doanh nghiệp nhỏ/vừa phù hợp đối tượng và chính sách đã chọn. TT46/2025 sửa Điều 10, không thay danh mục. |
+| `vn-tt99-2025` | 184 tài khoản, 71 cấp1; Phụ lục II phần A | Hiệu lực 01/01/2026, năm tài chính bắt đầu từ/sau ngày đó. SME có thể chọn, nhất quán ít nhất một kỳ kế toán năm. |
+
+| Nhóm pháp lý / mã | Root ứng dụng | Giới hạn |
+| --- | --- | --- |
+| Tài sản 1xx/2xx | `asset` | 214/229 và 215122 (TT99) điều chỉnh giảm, thường dư Có; vẫn là tài sản. |
+| Nợ phải trả 3xx | `liability` | Không suy AR/AP từ bên số dư hoặc tên “phải thu/phải trả”. |
+| Vốn chủ sở hữu 4xx | `equity` | 419 điều chỉnh giảm; 413/421 có thể dư Nợ hoặc Có. |
+| Doanh thu 5xx | `income` | 521 chỉ trong TT99, giảm trừ doanh thu, không phải expense. |
+| Chi phí SXKD 6xx | `expense` | Không tự sinh giá vốn, giá thành hoặc module kho. |
+| Thu nhập khác 7xx | `income` | Nhóm trình bày riêng; không cần root mới. |
+| Chi phí khác 8xx | `expense` | Có TK thuế TNDN không có nghĩa có kê khai thuế. |
+| Xác định kết quả 9xx / 911 | `result` | Chỉ purpose general; không tự kết chuyển hoặc khóa sổ, không ép số dư về 0. |
+
+Root là bản chất kinh tế, không là quy tắc cấm ghi Nợ/Có. Báo cáo tiếp tục tính Nợ−Có bằng số nguyên chính xác. Group được xác định theo **toàn bộ** catalog và luôn general; chỉ lá được hạch toán. Không biến cha thành ledger khi chỉ chọn một nhánh, không tạo heading giả mã 1/2/3.
+
+Purpose của lá: 111/lá dưới111 → cash; 112/lá dưới112 → bank; 131 → receivable; 331 → payable; các mã khác → general. Không map138 thành AR,338 thành AP hoặc1281 thành bank. TT133 giữ1111/1112,1121/1122 và5111/5112/5113/5118; TT99 không thêm các mã này. TT99 giữ215→2151→21512→215121/215122,332,3525,821→8211→82111/82112. Cùng code không đồng nghĩa: TT1333386 là nhận ký quỹ/ký cược, TT993386 là BHTN; TT1336421 là bán hàng, TT996421 là nhân viên quản lý.
+
+Danh mục ngoại tệ và ngành nghề vẫn đầy đủ. Sổ hiện chỉ VND: chỉ ghi giá trị quy đổi, không nguyên tệ/tỷ giá/tự đánh giá lại. 131/331 dùng AR/AP hiện có: chiều tăng mở khoản, chiều giảm cần allocation; **không** bổ sung ứng trước/overpayment chỉ vì import. Import không tạo bút toán, số dư đầu kỳ, tài sản/kho/thuế/BCTC và không chứng nhận tuân thủ đầy đủ TT133/TT99.
+
+TT200 không là mẫu cho kỳ mới2026; giữ ngoại lệ cổ phần hóa tại khoản2 Điều31 TT99, không tuyên bố bãi bỏ mọi nội dung vô điều kiện. TT132/TT58, ngân hàng, hành chính sự nghiệp và hộ kinh doanh ngoài hai bộ mẫu. TT58 hiệu lực01/07/2026, áp dụng năm tài chính bắt đầu từ/sau01/07/2026; TT132 hết hiệu lực từ ngày đó. TT58 quy định sổ theo phương pháp thuế, không là catalog ghi sổ kép; DNSN có thể chọn chế độ SME nhất quán trong năm theo Điều4.3.
+
+Nguồn: [TT133 Công báo](https://congbao.chinhphu.vn/van-ban/thong-tu-so-133-2016-tt-btc-21048/15524.htm), [Phụ lục 1 chính thức, PDF trang76–81](https://congbaocdn.chinhphu.vn/CongBaoCP/VanBan/2016/8/21048/15524-1-1332016tt-btc15581pdf), [TT46 Chính phủ](https://chinhphu.vn/?docid=214192&pageid=27160), [TT99 Công báo](https://congbao.chinhphu.vn/van-ban/thong-tu-so-99-2025-tt-btc-46529.htm), [Phụ lục II phần A, PDF trang33–43](https://congbaocdn.chinhphu.vn/CongBaoCP/VanBan/2025/10/46529/59634-1-20251565-156699-2025-tt-btc.pdf), [TT58 Công báo](https://congbao.chinhphu.vn/van-ban/thong-tu-so-58-2026-tt-btc-469663.htm).
+
+#### 3.1.2. Chọn, xem trước và nhập nguyên tử
+
+Sau setup sổ, Accounts → **Nhập từ bộ tài khoản mẫu** → chọn một chế độ → chọn lá/toàn bộ → **Xem trước** → **Xác nhận nhập**. Checkbox nhóm chọn toàn bộ lá hậu duệ; checkbox toàn bộ chọn cả hàng bị filter ẩn. Selection chỉ giữ lá; server thêm đúng ancestors, không kéo siblings. Thay template/selection vô hiệu preview cũ; UI hiển thị số lựa chọn ẩn và cha tự kèm.
+
+| Action tại `/api/erp-mini/accounting/` | Method / byte cap | Input |
+| --- | --- | --- |
+| `account-templates` | GET / 0 | Không body |
+| `account-template` | POST / 4096 | `{templateId}` |
+| `preview-account-import` | POST / 65536 | `{templateId,templateVersion,selectedCodes}` |
+| `import-accounts` | POST / 65536 | Selection + `commandId` UUID |
+
+Mọi action kể cả catalog cần session, plugins:manage, plugin enabled, Node/VND và sổ đã setup. POST giữ same-origin/header/content-type/actual-byte guards. Strict input từ chối fields giả actor/name/root/parent/UUID account; 1–512 mã ASCII3–6 chữ số, unique, chỉ lá catalog. Selection được sort để thứ tự khác có cùng identity. Unknown/group/empty/duplicate trả INVALID_INPUT; version chưa hỗ trợ trả COA_TEMPLATE_VERSION.
+
+Preview là snapshot chỉ đọc, không tạo pending record/group. Mỗi row trả code/name/parent/root/purpose/group/category, automaticParent, status `create|existing|conflict`, existingId và chi tiết field xung đột. Existing chỉ khi name/root/purpose/group/parent và active=true đều khớp; code tìm theo NFKC/lowercase nhưng giữ display code cũ. Không đoán synonyms. Cha xung đột chặn cả dependency. Tất cả đã có là preview hợp lệ create0, UI không gửi lệnh.
+
+Import **create-only**, recheck DB dưới một transaction: conflict bất kỳ trả COA_IMPORT_CONFLICT và rollback toàn bộ, không overwrite/rename/reparent/reactivate/convert account911 cũ. Tạo cha trước con, reuse IDs cha existing, audit mỗi account mới với actor thật/event `import-accounts:<templateId>:<version>`; existing không đổi revision/audit. Không đổi balances hoặc journal sequence. Account/audit/receipt fault rollback cùng nhau; race tạo account giống hệt được skip và receipt phản ánh số thực tế.
+
+Receipt riêng `{commandId,templateId,templateVersion,selectedCodes,created:[{code,id,revision}],existing:[{code,id,revision}],completedAt}` gồm đầy đủ closure, hai tập rời nhau, sort code. Đây là kết quả tại thời điểm import, không là cache account hiện tại hoặc FinancialResult. Command ID dùng chung namespace với post/reverse: khác actor/action/payload trả IDEMPOTENCY_CONFLICT. Cùng command trả receipt cũ **trước** lookup catalog/account hiện tại, kể cả account đã đổi code hoặc catalog nâng version; command mới cùng selection tương thích có thể trả create0.
+
+UI lưu exact payload + closure dự kiến vào sessionStorage theo installation **trước gửi**, kiểm strict acknowledgment trước xóa intent. Storage hỏng fail closed. Mất mạng/timeout/storage/busy/INTERNAL_ERROR/receipt sai/IDEMPOTENCY_CONFLICT giữ intent, thông báo **Chưa xác nhận kết quả nhập** và khóa lựa chọn/sửa mới, kể cả sau reload ngoài panel. Retry/đối soát dùng đúng command; không UUID mới hoặc tab thay thế. Chỉ INVALID_INPUT/COA_TEMPLATE_VERSION/COA_IMPORT_CONFLICT chứng minh chưa commit mới cho clear và preview lại. Thành công refresh Accounts và mở account bằng ID receipt; không hứa nằm trên page25 đầu.
+
+Người vận hành có thể tùy biến bằng editor và quy chế kế toán riêng; import không là công cụ chuyển TT133↔TT99 hoặc sửa lịch sử.
+
 
 ### 3.2. Đối tượng công nợ
 

@@ -18,7 +18,7 @@ const identity = { id: uuid, revision: revision.nullable() };
 const money = z.number().int().min(0).max(1_000_000_000_000);
 export const accountSchema = z.strictObject({
   ...identity, code: text(64).min(1), name: text(200).min(1),
-  rootType: z.enum(['asset', 'liability', 'equity', 'income', 'expense']),
+  rootType: z.enum(['asset', 'liability', 'equity', 'income', 'expense', 'result']),
   purpose: z.enum(['general', 'cash', 'bank', 'receivable', 'payable']),
   isGroup: z.boolean(), parentId: uuid.nullable(), active: z.boolean(),
 });
@@ -61,3 +61,31 @@ export const reportSchema = z.strictObject({
   type: z.enum(['journal', 'ledger', 'trial-balance', 'cash-bank', 'debt']), from: calendarDateSchema, to: calendarDateSchema,
   accountId: uuid.optional(), partyId: uuid.optional(), cursor: z.string().min(1).max(2048).optional(),
 }).refine((input) => input.from <= input.to, 'The report start must not be after its end.');
+
+const coaTemplateId = z.enum(['vn-tt133-2016', 'vn-tt99-2025']);
+const coaCode = z.string().regex(/^[0-9]{3,6}$/);
+const coaCodes = z.array(coaCode).min(1).max(512).refine((codes) => new Set(codes).size === codes.length, 'Account codes must be unique.');
+const coaSelectionFields = {
+  templateId: coaTemplateId, templateVersion: z.string().min(1).max(32),
+  selectedCodes: coaCodes.transform((codes) => [...codes].sort()),
+};
+export const coaTemplateSchema = z.strictObject({ templateId: coaTemplateId });
+export const coaSelectionSchema = z.strictObject(coaSelectionFields);
+export const coaImportSchema = z.strictObject({ ...coaSelectionFields, commandId: uuid });
+const coaAccountRefSchema = z.strictObject({ code: coaCode, id: uuid, revision });
+export const coaImportResultSchema = z.strictObject({
+  commandId: uuid, templateId: coaTemplateId, templateVersion: z.string().min(1).max(32),
+  selectedCodes: coaCodes,
+  created: z.array(coaAccountRefSchema).max(512), existing: z.array(coaAccountRefSchema).max(512),
+  completedAt: z.iso.datetime(),
+}).superRefine((result, context) => {
+  const refs = [...result.created, ...result.existing];
+  const codes = new Set(refs.map((ref) => ref.code));
+  const ids = new Set(refs.map((ref) => ref.id));
+  const sorted = (values: string[]) => values.every((value, index) => index === 0 || values[index - 1]! < value);
+  if (refs.length > 512 || codes.size !== refs.length || ids.size !== refs.length ||
+      !sorted(result.selectedCodes) || !sorted(result.created.map((ref) => ref.code)) || !sorted(result.existing.map((ref) => ref.code)) ||
+      result.selectedCodes.some((code) => !codes.has(code))) {
+    context.addIssue({ code: 'custom', message: 'The immutable import receipt has inconsistent account references.' });
+  }
+});

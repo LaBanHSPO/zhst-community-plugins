@@ -1,12 +1,12 @@
 import type { Metadata, RecordView } from '../model.js';
 
-export type RootType = 'asset' | 'liability' | 'equity' | 'income' | 'expense';
+export type RootType = 'asset' | 'liability' | 'equity' | 'income' | 'expense' | 'result';
 export type AccountPurpose = 'general' | 'cash' | 'bank' | 'receivable' | 'payable';
 export type PartyKind = 'customer' | 'supplier';
 export type JournalKind = 'journal' | 'opening' | 'receipt' | 'payment' | 'reversal';
 export type JournalStatus = 'draft' | 'cancelled' | 'posted';
 export type LineRole = 'general' | 'open-item' | 'settlement' | 'reversal';
-export type AccountingAction = 'info' | 'configure-book' | 'list' | 'get' | 'report' | 'save-account' | 'save-party' | 'link-customer' | 'save-journal' | 'cancel-draft' | 'post-journal' | 'reverse-journal' | 'save-settlement';
+export type AccountingAction = 'info' | 'configure-book' | 'list' | 'get' | 'report' | 'save-account' | 'account-templates' | 'account-template' | 'preview-account-import' | 'import-accounts' | 'save-party' | 'link-customer' | 'save-journal' | 'cancel-draft' | 'post-journal' | 'reverse-journal' | 'save-settlement';
 export interface BookSettings extends Metadata { currency: 'VND'; minorUnits: 0; startDate: string; installationId: string }
 export interface AccountingInfo { enabled: true; currency: 'VND'; minorUnits: 0; pageSize: 25; maxLines: 50; book: RecordView<BookSettings> | null }
 export interface Account extends Metadata { code: string; name: string; rootType: RootType; purpose: AccountPurpose; isGroup: boolean; parentId: string | null; active: boolean }
@@ -40,3 +40,31 @@ export interface AccountingReport { type: ReportType; asOfSequence: number; from
 
 /** Immutable financial command receipt; reload the journal separately for current links. */
 export interface FinancialResult { id: string; revision: string; postedSequence: number }
+
+export type CoaTemplateId = 'vn-tt133-2016' | 'vn-tt99-2025';
+export type CoaCategory = 'asset' | 'liability' | 'equity' | 'revenue' | 'operating-expense' | 'other-income' | 'other-expense' | 'result';
+export interface CoaTemplateMetadata {
+  templateId: CoaTemplateId; templateVersion: string; label: string;
+  scope: string; effectiveDate: string; fiscalYearApplication: string;
+  amendments: string[]; sources: { label: string; url: string }[]; limitations: string[];
+}
+export interface CoaEntry {
+  code: string; name: string; parentCode: string | null; rootType: RootType;
+  purpose: AccountPurpose; isGroup: boolean; category: CoaCategory;
+}
+export interface CoaTemplate extends CoaTemplateMetadata { entries: CoaEntry[] }
+export interface CoaSelection { templateId: CoaTemplateId; templateVersion: string; selectedCodes: string[] }
+export interface CoaImportInput extends CoaSelection { commandId: string }
+export interface CoaConflict { field: 'name' | 'rootType' | 'purpose' | 'isGroup' | 'parent' | 'active'; expected: string | boolean | null; actual: string | boolean | null }
+export interface CoaPreviewRow extends CoaEntry {
+  automaticParent: boolean; status: 'create' | 'existing' | 'conflict';
+  existingId?: string; conflicts?: CoaConflict[];
+}
+export interface CoaImportPreview extends CoaSelection {
+  rows: CoaPreviewRow[]; createCount: number; existingCount: number; conflictCount: number; canImport: boolean;
+}
+export interface CoaAccountRef { code: string; id: string; revision: string }
+/** Immutable master-data receipt; not the current state of imported accounts. */
+export interface CoaImportResult extends CoaImportInput {
+  created: CoaAccountRef[]; existing: CoaAccountRef[]; completedAt: string;
+}
