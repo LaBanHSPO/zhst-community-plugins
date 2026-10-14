@@ -1,0 +1,311 @@
+/*
+ * OTA workspace styles.
+ *
+ * Uses Kumo's semantic tokens where the host provides them and falls back to
+ * light-dark() so the page is readable on its own. Logical properties only, so
+ * the layout mirrors correctly in RTL admin locales.
+ */
+
+.ota-server {
+	display: flex;
+	flex-direction: column;
+	gap: 1.5rem;
+	padding: 1.5rem;
+	max-inline-size: 1200px;
+	margin-inline: auto;
+	color: light-dark(#1c1c1c, #f4f4f4);
+	font-size: 0.9375rem;
+	line-height: 1.5;
+}
+
+.ota-header,
+.ota-section-head {
+	display: flex;
+	gap: 1rem;
+	align-items: flex-start;
+	justify-content: space-between;
+	flex-wrap: wrap;
+}
+
+.ota-header h1 {
+	margin: 0;
+	font-size: 1.5rem;
+	font-weight: 650;
+}
+
+.ota-eyebrow {
+	margin: 0 0 0.25rem;
+	font-size: 0.75rem;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: light-dark(#6b6b6b, #a3a3a3);
+}
+
+.ota-muted {
+	color: light-dark(#5f5f5f, #a8a8a8);
+	margin: 0;
+}
+
+.ota-stats {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+	gap: 0.75rem;
+}
+
+.ota-stat {
+	display: flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	padding: 0.85rem 1rem;
+	border: 1px solid light-dark(#e2e2e2, #333);
+	border-radius: 0.6rem;
+	background: light-dark(#fbfbfb, #1b1b1b);
+}
+
+.ota-stat-label {
+	font-size: 0.75rem;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: light-dark(#6b6b6b, #a3a3a3);
+}
+
+.ota-stat strong {
+	font-size: 1.25rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.ota-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem;
+	border-block-end: 1px solid light-dark(#e2e2e2, #333);
+	padding-block-end: 0.25rem;
+}
+
+.ota-tabs a {
+	display: inline-block;
+	padding: 0.4rem 0.75rem;
+	border-radius: 0.45rem;
+	text-decoration: none;
+	color: inherit;
+	font-weight: 500;
+}
+
+.ota-tabs a:hover {
+	background: light-dark(#f0f0f0, #262626);
+}
+
+.ota-tabs a[aria-current="page"] {
+	background: light-dark(#e8eefc, #1e2a44);
+	color: light-dark(#123a8f, #bcd0ff);
+}
+
+.ota-section {
+	display: flex;
+	flex-direction: column;
+	gap: 0.9rem;
+	padding: 1.1rem;
+	border: 1px solid light-dark(#e2e2e2, #333);
+	border-radius: 0.7rem;
+	background: light-dark(#ffffff, #161616);
+}
+
+.ota-section h2 {
+	margin: 0;
+	font-size: 1.05rem;
+	font-weight: 620;
+}
+
+.ota-section-actions {
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+}
+
+.ota-filters,
+.ota-grid,
+.ota-token-form,
+.ota-upload {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 0.75rem;
+	align-items: end;
+}
+
+.ota-filter-apply,
+.ota-form-actions {
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.ota-field {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+	font-size: 0.8125rem;
+}
+
+.ota-table-scroll {
+	overflow-x: auto;
+	border: 1px solid light-dark(#e6e6e6, #303030);
+	border-radius: 0.6rem;
+}
+
+.ota-table-scroll table {
+	inline-size: 100%;
+	border-collapse: collapse;
+	font-size: 0.875rem;
+}
+
+.ota-table-scroll caption {
+	text-align: start;
+	padding: 0.5rem 0.75rem;
+	color: light-dark(#5f5f5f, #a8a8a8);
+	font-size: 0.8125rem;
+}
+
+.ota-table-scroll th,
+.ota-table-scroll td {
+	text-align: start;
+	padding: 0.55rem 0.75rem;
+	border-block-start: 1px solid light-dark(#ededed, #2a2a2a);
+	vertical-align: top;
+}
+
+.ota-table-scroll thead th {
+	background: light-dark(#f7f7f7, #1d1d1d);
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.ota-table-scroll small {
+	display: block;
+	color: light-dark(#6b6b6b, #a3a3a3);
+	font-size: 0.75rem;
+}
+
+.ota-table-scroll code {
+	font-size: 0.8125rem;
+	word-break: break-all;
+}
+
+.ota-row-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	align-items: center;
+}
+
+.ota-link,
+.ota-copy {
+	background: none;
+	border: none;
+	padding: 0;
+	font: inherit;
+	color: light-dark(#123a8f, #8fb4ff);
+	cursor: pointer;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.ota-link:disabled,
+.ota-copy:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.ota-danger {
+	color: light-dark(#a4262c, #ff9a9a);
+}
+
+.ota-banner {
+	padding: 0.65rem 0.85rem;
+	border-radius: 0.5rem;
+	border: 1px solid transparent;
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+}
+
+.ota-banner[data-tone="warning"] {
+	background: light-dark(#fff8e6, #33290f);
+	border-color: light-dark(#f0d9a0, #6b5518);
+}
+
+.ota-banner[data-tone="info"] {
+	background: light-dark(#eef4ff, #1a2438);
+	border-color: light-dark(#cfdcff, #35476f);
+}
+
+.ota-banner[data-tone="success"] {
+	background: light-dark(#edf9f0, #16281c);
+	border-color: light-dark(#c4e6ce, #2f5c3d);
+}
+
+.ota-token-value {
+	display: flex;
+	gap: 0.75rem;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.ota-token-value code {
+	word-break: break-all;
+	font-size: 0.8125rem;
+}
+
+.ota-notice {
+	margin: 0;
+	padding: 0.5rem 0.75rem;
+	border-radius: 0.45rem;
+	background: light-dark(#eef4ff, #1a2438);
+}
+
+.ota-error {
+	padding: 0.65rem 0.85rem;
+	border-radius: 0.5rem;
+	background: light-dark(#fdecec, #33181a);
+	border: 1px solid light-dark(#f3c2c2, #6b2f33);
+}
+
+.ota-error p {
+	margin: 0.2rem 0;
+}
+
+.ota-error small {
+	color: light-dark(#6b6b6b, #a3a3a3);
+}
+
+.ota-snippet {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.ota-snippet pre {
+	margin: 0;
+	padding: 0.85rem;
+	overflow-x: auto;
+	border-radius: 0.5rem;
+	background: light-dark(#f6f6f6, #101010);
+	border: 1px solid light-dark(#e6e6e6, #303030);
+	font-size: 0.8125rem;
+}
+
+.ota-rules {
+	margin: 0;
+	padding-inline-start: 1.2rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+}
+
+.ota-footer {
+	color: light-dark(#5f5f5f, #a8a8a8);
+	font-size: 0.8125rem;
+	border-block-start: 1px solid light-dark(#e2e2e2, #333);
+	padding-block-start: 0.75rem;
+}
