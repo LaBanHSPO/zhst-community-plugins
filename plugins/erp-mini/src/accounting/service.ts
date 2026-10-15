@@ -162,8 +162,14 @@ export class AccountingService {
   }
   private accountImportPreview(data: CoaSelection, entries: CoaEntry[]): { preview: CoaImportPreview; existing: Map<string, AccountRow>; ordered: CoaEntry[] } {
     const keys = entries.map((entry) => entry.code.normalize('NFKC').toLowerCase());
-    const accounts = this.store.all<AccountRow>(`SELECT * FROM erp_ac_accounts WHERE codeKey IN (${keys.map(() => '?').join(',')})`, ...keys);
-    const existing = new Map(accounts.map((row) => [row.codeKey, row]));
+    const existing = new Map<string, AccountRow>();
+    // SQLite Durable Objects allow at most 100 bound variables per query.
+    for (let offset = 0; offset < keys.length; offset += 100) {
+      const batch = keys.slice(offset, offset + 100);
+      for (const row of this.store.all<AccountRow>(`SELECT * FROM erp_ac_accounts WHERE codeKey IN (${batch.map(() => '?').join(',')})`, ...batch)) {
+        existing.set(row.codeKey, row);
+      }
+    }
     const byCode = new Map(entries.map((entry) => [entry.code, entry]));
     const selected = new Set(data.selectedCodes);
     const rows = new Map<string, CoaPreviewRow>();
@@ -568,8 +574,9 @@ export class AccountingService {
         if (data.active !== undefined) { clauses.push('active=?'); parameters.push(Number(data.active)); }
         if (data.kind !== undefined) { clauses.push('kind=?'); parameters.push(data.kind); }
         if (data.search) {
-          clauses.push("(nameKey LIKE ? ESCAPE '\\' OR codeKey LIKE ? ESCAPE '\\')");
-          const term = `%${data.search.normalize('NFKC').toLowerCase().replace(/[\\%_]/g, '\\$&')}%`;
+          // Literal substring search avoids SQLite DO's 50-byte LIKE pattern limit.
+          clauses.push('(instr(nameKey,?)>0 OR instr(codeKey,?)>0)');
+          const term = data.search.normalize('NFKC').toLowerCase();
           parameters.push(term, term);
         }
       }

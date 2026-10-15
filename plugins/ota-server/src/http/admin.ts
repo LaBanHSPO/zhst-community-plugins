@@ -6,7 +6,7 @@
 
 import { OtaError, sha256Hex } from "../domain/data.js";
 import { storageView } from "../domain/service.js";
-import { storageSaveSchema, platformSchema, appSlugSchema, channelSchema, binarySchema } from "../domain/validation.js";
+import { storageSaveSchema, platformSchema, appSlugSchema, pushMetaSchema } from "../domain/validation.js";
 import { probeBlobStore, resolveBlobStore, r2BlobStore } from "../storage/index.js";
 import { readMultipart } from "./multipart.js";
 import {
@@ -22,13 +22,14 @@ import {
 import type { OtaAdminRuntime } from "./shared.js";
 import type { OtaBlobStore, OtaStorageSettings } from "../domain/types.js";
 
-const READS: Record<string, true> = { info: true, releases: true, tokens: true, storage: true, audit: true };
+const READS: Record<string, true> = { info: true, releases: true, tokens: true, storage: true, audit: true, "upload-key": true };
 const WRITES: Record<string, true> = {
 	"release-delete": true,
 	"release-promote": true,
 	"release-upload": true,
 	"token-create": true,
 	"token-revoke": true,
+	"upload-key-rotate": true,
 	"app-save": true,
 	"storage-save": true,
 	"storage-test": true,
@@ -96,6 +97,10 @@ export async function handleOtaAdminRequest(
 				return adminSuccess(await service.createToken(await requireJson(request)), 201);
 			case "token-revoke":
 				return adminSuccess(await service.revokeToken(await requireJson(request)));
+			case "upload-key":
+				return adminSuccess(await service.getUploadKey(appSlugSchema.parse(parseQuery(new URL(request.url).search).app)));
+			case "upload-key-rotate":
+				return adminSuccess(await service.rotateUploadKey(await requireJson(request)), 201);
 			case "app-save":
 				return adminSuccess(await service.saveApp(await requireJson(request)));
 			case "storage-save":
@@ -154,14 +159,17 @@ export async function handleOtaAdminRequest(
 				if (!form.file) throw new OtaError("BUNDLE_MISSING", 'The upload must include a "bundle" file part.', 400);
 				const app = appSlugSchema.parse(form.fields.app ?? "");
 				const platform = platformSchema.parse(form.fields.platform ?? "");
-				const channel = channelSchema.parse(form.fields.channel ?? "");
-				const binary = binarySchema.parse(form.fields.binary ?? "");
-				const release = await service.push(app, platform, {
-					channel,
-					binary,
+				const meta = pushMetaSchema.parse({
+					channel: form.fields.channel ?? "",
+					binary: form.fields.binary ?? "",
 					sha256: await sha256Hex(form.file.bytes),
 					note: form.fields.note ?? "",
 					commit: form.fields.commit ?? "",
+					signature: form.fields.signature,
+					mandatory: form.fields.mandatory,
+				});
+				const release = await service.push(app, platform, {
+					...meta,
 					bytes: form.file.bytes,
 				});
 				return adminSuccess(release, 201);

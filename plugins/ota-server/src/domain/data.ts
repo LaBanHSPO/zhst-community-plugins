@@ -120,6 +120,8 @@ export interface ReleaseRow {
 	size: number;
 	note: string;
 	commit_sha: string;
+	signature: string;
+	mandatory: number;
 	branch: string;
 	created_at: number;
 }
@@ -139,6 +141,8 @@ export function releaseFromRow(row: ReleaseRow, current: boolean): OtaRelease {
 		size: row.size,
 		note: row.note,
 		commit: row.commit_sha,
+		signature: row.signature,
+		mandatory: row.mandatory === 1,
 		branch: row.branch,
 		selected: current,
 		createdAt: new Date(row.created_at).toISOString(),

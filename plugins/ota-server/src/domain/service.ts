@@ -61,9 +61,11 @@ import type {
 import { OTA_PLATFORMS } from "./types.js";
 import {
 	appSaveSchema,
+	appSlugSchema,
 	auditListSchema,
 	idSchema,
 	releaseListSchema,
+	releaseMetadataSchema,
 	storageSaveSchema,
 	storageSettingsSchema,
 	tokenCreateSchema,
@@ -360,6 +362,7 @@ export class OtaService {
 
 	async push(app: string, platform: OtaPlatform, input: OtaPushInput): Promise<OtaRelease> {
 		await this.requireApp(app);
+		const metadata = releaseMetadataSchema.parse(input);
 		if (input.bytes.byteLength === 0) throw new OtaError("BUNDLE_MISSING", "The bundle file is empty.", 400);
 		if (input.bytes.byteLength > this.options.maxBundleBytes)
 			throw new OtaError("BUNDLE_TOO_LARGE", "The uploaded bundle is too large.", 413);
@@ -375,8 +378,14 @@ export class OtaService {
 		const pair: Pair = { app, platform, channel: input.channel, binary: input.binary };
 		const current = await this.currentRows(app, platform, input.channel, input.binary);
 		const existing = current[0];
-		if (existing && existing.sha256 === input.sha256 && existing.size === input.bytes.byteLength) {
-			// A retried push with identical bytes: keep the stored build, do not duplicate.
+		if (
+			existing &&
+			existing.sha256 === input.sha256 &&
+			existing.size === input.bytes.byteLength &&
+			existing.signature === metadata.signature &&
+			(existing.mandatory === 1) === metadata.mandatory
+		) {
+			// Retry only when both bundle bytes and mobile update metadata match.
 			await this.audit("push-replay", { app, platform, channel: input.channel, binary: input.binary });
 			return releaseFromRow(existing, true);
 		}
@@ -402,13 +411,15 @@ export class OtaService {
 				size: input.bytes.byteLength,
 				note: input.note,
 				commit_sha: input.commit,
+				signature: metadata.signature,
+				mandatory: metadata.mandatory ? 1 : 0,
 				branch: input.channel,
 				created_at: createdAt,
 			};
 			try {
 				await this.run(
-					`INSERT INTO ota_releases (id, app, platform, channel, binary, release_id, file, sha256, size, note, commit_sha, branch, created_at)
-					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					`INSERT INTO ota_releases (id, app, platform, channel, binary, release_id, file, sha256, size, note, commit_sha, signature, mandatory, branch, created_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 					[
 						candidate.id,
 						candidate.app,
@@ -421,6 +432,8 @@ export class OtaService {
 						candidate.size,
 						candidate.note,
 						candidate.commit_sha,
+						candidate.signature,
+						candidate.mandatory,
 						candidate.branch,
 						candidate.created_at,
 					],
@@ -718,6 +731,63 @@ export class OtaService {
 			"UPDATE ota_tokens SET last_used_at = ? WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)",
 			[timestamp, row.id, timestamp - TOKEN_USE_THROTTLE_MS],
 		).catch(() => undefined);
+	}
+
+	// ------------------------------------------------------------ upload keys
+
+	private async uploadKeyRecord(app: string): Promise<{ hash: string; updatedAt: number } | null> {
+		const row = await this.first<{ value: string; updated_at: number }>(
+			"SELECT value, updated_at FROM ota_settings WHERE key = ?",
+			[`upload-key:${app}`],
+		);
+		if (!row) return null;
+		const value: unknown = JSON.parse(row.value);
+		if (
+			typeof value !== "object" || value === null || !("hash" in value) ||
+			typeof value.hash !== "string" || !/^[0-9a-f]{64}$/.test(value.hash)
+		) throw new OtaError("INVALID_CONFIGURATION", "The upload key configuration is invalid.", 500);
+		return { hash: value.hash, updatedAt: row.updated_at };
+	}
+
+	async getUploadKey(app: string): Promise<{ app: string; configured: boolean; updatedAt: string | null }> {
+		this.requireAdmin();
+		appSlugSchema.parse(app);
+		await this.requireApp(app);
+		const record = await this.uploadKeyRecord(app);
+		return {
+			app,
+			configured: record !== null,
+			updatedAt: record === null ? null : new Date(record.updatedAt).toISOString(),
+		};
+	}
+
+	/** First creation enables protection; every subsequent creation replaces the key. */
+	async rotateUploadKey(input: unknown): Promise<{
+		key: string;
+		record: { app: string; configured: boolean; updatedAt: string };
+	}> {
+		this.requireAdmin();
+		const app = appSlugSchema.parse(
+			typeof input === "object" && input !== null && "app" in input ? input.app : undefined,
+		);
+		await this.requireApp(app);
+		const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(64))));
+		const timestamp = this.now();
+		await this.run(
+			`INSERT INTO ota_settings (key, value, version, updated_at) VALUES (?, ?, 1, ?)
+			 ON CONFLICT(key) DO UPDATE SET value = excluded.value, version = ota_settings.version + 1, updated_at = excluded.updated_at`,
+			[`upload-key:${app}`, JSON.stringify({ hash: await sha256Hex(encoder.encode(key)) }), timestamp],
+		);
+		await this.audit("upload-key-rotate", { app });
+		return { key, record: { app, configured: true, updatedAt: new Date(timestamp).toISOString() } };
+	}
+
+	async authenticateUploadKey(app: string, key: string | null): Promise<void> {
+		const record = await this.uploadKeyRecord(app);
+		if (record === null) return;
+		if (!key) throw new OtaError("UPLOAD_KEY_REQUIRED", "An X-OTA-Upload-Key header is required for this app.", 403);
+		if (key.length !== 88 || !timingSafeEqual(record.hash, await sha256Hex(encoder.encode(key))))
+			throw new OtaError("UPLOAD_KEY_INVALID", "The upload key is not valid for this app.", 403);
 	}
 
 	// --------------------------------------------------------------- settings

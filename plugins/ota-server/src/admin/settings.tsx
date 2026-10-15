@@ -194,6 +194,63 @@ export function StorageTab({ info }: { info: OtaInfo }) {
 	);
 }
 
+function UploadKeySection({ app }: { app: string }) {
+	const view = useAsync<{ app: string; configured: boolean; updatedAt: string | null }>(
+		(signal) => get("upload-key", { app }, signal), [app],
+	);
+	const [issued, setIssued] = useState<{ key: string; app: string } | null>(null);
+	const [pending, setPending] = useState(false);
+	const [error, setError] = useState<unknown>(null);
+	const current = view.data?.app === app ? view.data : undefined;
+
+	async function rotate() {
+		if (!current) return;
+		if (!window.confirm(current.configured
+			? `Rotate the upload key for ${app}? The old key stops working for new pushes immediately.`
+			: `Enable the upload key for ${app}? CI must send X-OTA-Upload-Key on every new push.`)) return;
+		setPending(true);
+		setIssued(null);
+		setError(null);
+		try {
+			const result = await post<{ key: string; record: { app: string } }>("upload-key-rotate", { app });
+			setIssued({ key: result.key, app: result.record.app });
+			view.reload();
+		} catch (cause) {
+			setError(cause);
+		} finally {
+			setPending(false);
+		}
+	}
+
+	return (
+		<div className="ota-banner" data-tone={current?.configured ? "info" : "warning"}>
+			<h3>Extra upload protection · {app}</h3>
+			<p>
+				{current ? (current.configured
+					? `Enabled · last rotated ${when(current.updatedAt)}.`
+					: "Not enabled: a push token alone currently permits publishing.") : "Loading upload key status…"}
+				{" "}This private key is separate from the public release signature. Downloads are unchanged.
+			</p>
+			<Failure error={view.error} onRetry={view.reload} />
+			<Failure error={error} />
+			<Button type="button" disabled={!current || view.loading || pending} onClick={() => void rotate()}>
+				{pending ? "Creating…" : current?.configured ? "Rotate upload key" : "Create upload key"}
+			</Button>
+			{issued ? (
+				<div>
+					<strong>Copy the key for {issued.app} now — shown once. Store it in CI secrets.</strong>
+					<div className="ota-token-value">
+						<code>{issued.key}</code>
+						<CopyButton value={issued.key} label="Copy upload key" />
+					</div>
+					<p>Send as <code>X-OTA-Upload-Key</code>. Never put this key in <code>signature</code> or the app.</p>
+					<Button type="button" onClick={() => setIssued(null)}>Dismiss key</Button>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
 
 export function TokensTab({ info }: { info: OtaInfo }) {
 	const tokens = useAsync<OtaTokenSummary[]>((signal) => get<OtaTokenSummary[]>("tokens", {}, signal), []);
@@ -255,6 +312,8 @@ export function TokensTab({ info }: { info: OtaInfo }) {
 					</small>
 				</div>
 			) : null}
+
+			{app === "" ? null : <UploadKeySection key={app} app={app} />}
 
 			<form className="ota-token-form" onSubmit={(event) => void create(event)}>
 				<Select

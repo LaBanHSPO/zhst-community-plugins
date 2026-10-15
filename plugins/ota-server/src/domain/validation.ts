@@ -51,12 +51,33 @@ export const commitSchema = z
 	.regex(/^[0-9A-Za-z._/-]*$/, "Commit must be a plain identifier.")
 	.default("");
 
+/** Public metadata, preserved verbatim; this does not verify a signing algorithm. */
+export const signatureSchema = z
+	.string()
+	.max(4096)
+	.refine(
+		(value) =>
+			value === "" ||
+			(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value) &&
+				btoa(atob(value)) === value),
+		"Signature must be standard base64.",
+	)
+	.default("");
+
+/** Direct domain callers supply a boolean, never a truthy form string. */
+export const releaseMetadataSchema = z.object({
+	signature: signatureSchema,
+	mandatory: z.boolean().default(false),
+});
+
 export const pushMetaSchema = z.object({
 	channel: channelSchema,
 	binary: binarySchema,
 	sha256: sha256Schema,
 	note: noteSchema,
 	commit: commitSchema,
+	signature: signatureSchema,
+	mandatory: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
 });
 
 export const releaseListSchema = z.object({

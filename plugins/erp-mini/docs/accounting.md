@@ -1,6 +1,6 @@
 # Đặc tả accounting nội bộ — ERP mini
 
-Contract nghiệp vụ cho module accounting nội bộ Node/VND đã triển khai. Đọc cùng [lưu trữ và vận hành](accounting-storage.md); nguồn thực thi nằm trong [`src/accounting/`](../src/accounting/) và UI [`src/admin/accounting/`](../src/admin/accounting/). Các tiêu chí B01–B21 bên dưới là yêu cầu chấp nhận, không phải tuyên bố tất cả cổng runtime/release đã được kiểm tra.
+Contract nghiệp vụ cho module accounting nội bộ VND trên Node SQLite hoặc Cloudflare SQLite Durable Objects. Đọc cùng [lưu trữ và vận hành](accounting-storage.md); nguồn thực thi nằm trong [`src/accounting/`](../src/accounting/) và UI [`src/admin/accounting/`](../src/admin/accounting/). Các tiêu chí B01–B21 bên dưới là yêu cầu chấp nhận, không phải tuyên bố tất cả cổng runtime/release đã được kiểm tra.
 
 ## 1. Outcome và nguồn yêu cầu
 
@@ -17,7 +17,7 @@ Các lựa chọn bên dưới là **quyết định phạm vi accounting nội 
 - Một installation = một doanh nghiệp. Installation này VND; mọi giá trị chứng từ là số nguyên đồng.
 - EmDash vẫn sở hữu danh tính/session/passkey. Mọi đọc/ghi/report accounting chỉ cho người có `plugins:manage`; giữ admin-only hiện hữu, không thêm quy trình duyệt nhiều cấp.
 - Scope: hệ thống tài khoản; khách hàng/nhà cung cấp kế toán; số dư đầu kỳ; bút toán thủ công; thu/chi thanh toán công nợ từng phần; đảo; nhật ký/sổ cái/bảng cân đối phát sinh/số dư tiền/công nợ.
-- Runtime triển khai được chọn: Node SQLite local/standalone. Cloudflare CRM/sales hiện hữu được giữ; accounting Cloudflare không được quảng cáo là supported. Không cần cloud credentials hay deployment.
+- Runtime: Node SQLite local/standalone hoặc SQLite Durable Object riêng trên Cloudflare. CRM/sales vẫn dùng storage hiện hữu; accounting không dùng D1/CAS thay transaction. Chỉ installation VND được bật accounting; USD hiện hữu không bị đổi currency. Local tests không cần cloud credentials và không chứng minh deployed-Worker acceptance.
 - Non-goals: VAT/tax, hóa đơn điện tử, invoice pháp định, tồn kho/giá vốn, ngoại tệ, payroll, tự ghi sổ từ order, hợp nhất công ty, fiscal closing và báo cáo pháp định.
 - Thu/trả vượt nợ, ứng trước, bù trừ công nợ và nghiệp vụ giảm nợ không qua đảo chưa nằm trong luồng thu/chi đã chọn; lệnh ngoài phạm vi phải bị từ chối rõ, không tự biến thành doanh thu/chi phí. Bút toán tổng quát không có công nợ vẫn dùng được.
 - Người vận hành có thể thiết lập tài khoản thủ công hoặc chọn **TT133/2016** / **TT99/2025** từ bộ mẫu đóng gói, chọn toàn bộ hoặc subset rồi xem trước và nhập. Không chọn chế độ ngầm từ ngày máy/ngày bắt đầu sổ, không seed lúc install/startup và không chuyển đổi chế độ kế toán của doanh nghiệp.
@@ -74,7 +74,7 @@ Sau setup sổ, Accounts → **Nhập từ bộ tài khoản mẫu** → chọn 
 | `preview-account-import` | POST / 65536 | `{templateId,templateVersion,selectedCodes}` |
 | `import-accounts` | POST / 65536 | Selection + `commandId` UUID |
 
-Mọi action kể cả catalog cần session, plugins:manage, plugin enabled, Node/VND và sổ đã setup. POST giữ same-origin/header/content-type/actual-byte guards. Strict input từ chối fields giả actor/name/root/parent/UUID account; 1–512 mã ASCII3–6 chữ số, unique, chỉ lá catalog. Selection được sort để thứ tự khác có cùng identity. Unknown/group/empty/duplicate trả INVALID_INPUT; version chưa hỗ trợ trả COA_TEMPLATE_VERSION.
+Mọi action kể cả catalog cần session, plugins:manage, plugin enabled, VND và sổ đã setup trên Node hoặc Cloudflare. POST giữ same-origin/header/content-type/actual-byte guards. Strict input từ chối fields giả actor/name/root/parent/UUID account; 1–512 mã ASCII3–6 chữ số, unique, chỉ lá catalog. Selection được sort để thứ tự khác có cùng identity. Unknown/group/empty/duplicate trả INVALID_INPUT; version chưa hỗ trợ trả COA_TEMPLATE_VERSION.
 
 Preview là snapshot chỉ đọc, không tạo pending record/group. Mỗi row trả code/name/parent/root/purpose/group/category, automaticParent, status `create|existing|conflict`, existingId và chi tiết field xung đột. Existing chỉ khi name/root/purpose/group/parent và active=true đều khớp; code tìm theo NFKC/lowercase nhưng giữ display code cũ. Không đoán synonyms. Cha xung đột chặn cả dependency. Tất cả đã có là preview hợp lệ create0, UI không gửi lệnh.
 
@@ -171,7 +171,7 @@ Mọi report chỉ đọc posted lines, bao gồm original **và** reversal đú
 - Giữ plugin ID `erp-mini`; không tạo plugin Accounting shell hoặc bản fork EmDash/Frappe.
 - Mọi thay đổi nguồn cần plugin check, host typecheck/build, built auth denial và browser workflow thật. Dev bypass chỉ chứng minh dev-mode, không thay thế production session/permission evidence.
 - Không reset `.local`, credential hoặc key installation người dùng đã kiểm tra. Phát triển/tests dùng DB synthetic tách biệt.
-- Backup/restore phải giữ accounting DB, EmDash DB, media và key cùng installation; xem thiết kế storage cho tính nhất quán và WAL. Không triển khai/publish từ nhiệm vụ thiết kế.
+- Backup/restore phải giữ accounting SQLite resource, EmDash DB, media và key cùng installation; xem thiết kế storage cho paired capture và recovery theo từng runtime. Không triển khai/publish từ nhiệm vụ implementation.
 - Internal ledger không tự động đáp ứng chế độ kế toán/thuế Việt Nam. Tài liệu ERPNext là reference behavior, không copy GPL source vào package MIT.
 
 ## Tham khảo

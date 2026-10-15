@@ -9,15 +9,19 @@
     ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" },
     "./admin": "./src/admin/index.tsx",
     "./accounting": { "types": "./dist/accounting/server.d.mts", "import": "./dist/accounting/server.mjs" },
-    "./accounting-node": { "types": "./dist/accounting/sqlite.d.mts", "import": "./dist/accounting/sqlite.mjs" }
+    "./accounting-node": { "types": "./dist/accounting/sqlite.d.mts", "import": "./dist/accounting/sqlite.mjs" },
+    "./accounting-cloudflare": { "types": "./dist/accounting/cloudflare.d.mts", "import": "./dist/accounting/cloudflare.mjs" }
   },
-  "files": ["dist", "src", "migrations", "docs", "AGENTS.md", "LICENSE", "README.md"],
+  "files": ["dist", "src", "migrations", "scripts/accounting-artifact.mjs", "docs", "AGENTS.md", "LICENSE", "README.md"],
   "scripts": {
-    "build": "tsdown src/index.ts src/accounting/server.ts src/accounting/sqlite.ts --format esm --dts --clean",
+    "accounting:artifact": "node scripts/accounting-artifact.mjs",
+    "prebuild": "npm run accounting:artifact",
+    "build": "tsdown src/index.ts src/accounting/server.ts src/accounting/sqlite.ts src/accounting/cloudflare.ts --format esm --dts --clean",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
+    "test:cloudflare": "node --test --test-concurrency=1 tests/accounting-cloudflare.test.mjs",
     "compatibility": "node scripts/compatibility.mjs",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run build && npm run typecheck && npm test && npm run test:cloudflare"
   },
   "dependencies": { "zod": "4.6.5" },
   "peerDependencies": { "emdash": ">=1.2.0 <2", "react": "^19.0.0" },
@@ -28,6 +32,8 @@
     "@types/react": "19.3.0",
     "astro": "7.3.5",
     "emdash": "1.2.0",
+    "esbuild": "0.28.2",
+    "miniflare": "4.20260730.0",
     "kysely": "0.29.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",

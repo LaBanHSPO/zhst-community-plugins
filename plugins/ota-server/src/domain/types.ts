@@ -29,6 +29,8 @@ export interface OtaRelease {
 	size: number;
 	note: string;
 	commit: string;
+	signature: string;
+	mandatory: boolean;
 	branch: string;
 	selected: boolean;
 	createdAt: string;
@@ -42,6 +44,8 @@ export interface OtaManifestEntry {
 	size: number;
 	note: string;
 	commit: string;
+	signature: string;
+	mandatory: boolean;
 	branch: string;
 	createdAt: string;
 }
@@ -58,6 +62,8 @@ export interface OtaPushInput {
 	sha256: string;
 	note: string;
 	commit: string;
+	signature?: string;
+	mandatory?: boolean;
 	bytes: Uint8Array;
 }
 
