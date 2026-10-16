@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import type { Metadata, RecordView } from '../model.js';
 import { ErpError, parse } from '../validation.js';
-import type { Account, AccountingInfo, AccountingListInput, AccountingPage, AllocationInput, BookSettings, FinancialResult, Journal, JournalInput, JournalKind, JournalLine, JournalLineInput, Party, PartyInput, SourceSummary } from './model.js';
+import type { Account, AccountInput, AccountingInfo, AccountingListInput, AccountingPage, AllocationInput, BookSettings, CoaAccountRef, CoaConflict, CoaEntry, CoaImportInput, CoaImportPreview, CoaImportResult, CoaPreviewRow, CoaSelection, CoaTemplate, CoaTemplateMetadata, FinancialResult, Journal, JournalInput, JournalKind, JournalLine, JournalLineInput, Party, PartyInput, SourceSummary } from './model.js';
 import type { AccountingStore, SqlParameter } from './store.js';
 import type { ErpAccountingSource } from './erp-source.js';
 import { buildAccountingReport } from './reports.js';
-import { accountSchema, accountingGetSchema, accountingListSchema, calendarDateSchema, configureBookSchema, draftActionSchema, journalSchema, linkCustomerSchema, partySchema, postJournalSchema, reportSchema, reverseJournalSchema, settlementSchema } from './validation.js';
+import { accountSchema, accountingGetSchema, accountingListSchema, calendarDateSchema, coaImportResultSchema, coaImportSchema, coaSelectionSchema, coaTemplateSchema, configureBookSchema, draftActionSchema, journalSchema, linkCustomerSchema, partySchema, postJournalSchema, reportSchema, reverseJournalSchema, settlementSchema } from './validation.js';
+import { accountImportClosure, accountTemplate, accountTemplates } from './coa.js';
 
 const savedBookSchema = z.strictObject({
   schemaVersion: z.literal(1), currency: z.literal('VND'), minorUnits: z.literal(0),
@@ -19,6 +20,7 @@ interface JournalRow extends Omit<Journal, 'lines' | 'reversedBy'> { id: string;
 interface LineRow { journalId: string; lineIndex: number; accountId: string; partyId: string | null; role: JournalLine['role']; accountCode: string | null; accountName: string | null; accountRootType: Account['rootType'] | null; accountPurpose: Account['purpose'] | null; partyCode: string | null; partyName: string | null; partyKind: Party['kind'] | null; debitMinor: number; creditMinor: number }
 interface SourceRow extends LineRow { postingDate: string; reference: string; revision: string }
 interface ReceiptRow { action: string; actorId: string; canonicalPayloadHash: string; journalId: string; revision: string; postedSequence: number }
+interface CoaReceiptRow { commandId: string; actorId: string; canonicalPayloadHash: string; templateId: string; templateVersion: string; resultJson: string; createdAt: string }
 
 // Preserve arrays (including their order), while sorting every object key for a command's durable identity.
 function canonical(value: unknown): string {
@@ -111,34 +113,162 @@ export class AccountingService {
       return { id: 'book', revision, value };
     });
   }
+  private writeAccount(data: AccountInput, event = 'save-account'): RecordView<Account> {
+    this.requiredBook();
+    const previous = this.store.get<AccountRow>('SELECT * FROM erp_ac_accounts WHERE id=?', data.id);
+    this.revision(previous, data.revision);
+    if ((data.isGroup && data.purpose !== 'general') || (['cash', 'bank', 'receivable'].includes(data.purpose) && (data.rootType !== 'asset' || data.isGroup)) || (data.purpose === 'payable' && (data.rootType !== 'liability' || data.isGroup))) throw new ErpError('ACCOUNT_UNAVAILABLE', 'Account purpose must match its ledger/root classification.');
+    const seen = new Set([data.id]);
+    let parentId = data.parentId;
+    while (parentId) {
+      if (seen.has(parentId)) throw new ErpError('ACCOUNT_CYCLE', 'An account cannot be its own ancestor.');
+      seen.add(parentId);
+      const parent = this.account(parentId).value;
+      if (!parent.isGroup || parent.rootType !== data.rootType || (data.active && !parent.active)) throw new ErpError('ACCOUNT_UNAVAILABLE', 'Select an active group parent in the same root.');
+      parentId = parent.parentId;
+    }
+    if (this.store.get('SELECT 1 FROM erp_ac_accounts WHERE parentId=? AND (rootType<>? OR ?=0) LIMIT 1', data.id, data.rootType, Number(data.isGroup))) throw new ErpError('ACCOUNT_UNAVAILABLE', 'An account with children must remain a group in their root.');
+    if (previous && (previous.rootType !== data.rootType || previous.purpose !== data.purpose || previous.isGroup !== Number(data.isGroup) || previous.parentId !== data.parentId) && this.store.get("SELECT 1 FROM erp_ac_lines l JOIN erp_ac_journals j ON j.id=l.journalId WHERE l.accountId=? AND j.status='posted' LIMIT 1", data.id)) throw new ErpError('ACCOUNT_HISTORY', 'The structure of an account with posted history is immutable.');
+    const codeKey = data.code.normalize('NFKC').toLowerCase();
+    if (this.store.get('SELECT 1 FROM erp_ac_accounts WHERE codeKey=? AND id<>?', codeKey, data.id)) throw new ErpError('CONFLICT', 'This normalized account code is already in use.');
+    const revision = globalThis.crypto.randomUUID();
+    const value: Account = { ...data, ...this.metadata(previous) };
+    const parameters: SqlParameter[] = [revision, data.code, codeKey, data.name, data.name.normalize('NFKC').toLowerCase(), data.rootType, data.purpose, Number(data.isGroup), data.parentId, Number(data.active), value.updatedAt, this.actorId];
+    if (previous) this.store.run('UPDATE erp_ac_accounts SET revision=?,code=?,codeKey=?,name=?,nameKey=?,rootType=?,purpose=?,isGroup=?,parentId=?,active=?,updatedAt=?,updatedBy=? WHERE id=? AND revision=?', ...parameters, data.id, data.revision);
+    else this.store.run('INSERT INTO erp_ac_accounts(revision,code,codeKey,name,nameKey,rootType,purpose,isGroup,parentId,active,updatedAt,updatedBy,id,schemaVersion,createdAt,createdBy) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)', ...parameters, data.id, value.createdAt, value.createdBy);
+    this.audit('account', data.id, event, revision);
+    return this.account(data.id);
+  }
   async saveAccount(input: unknown): Promise<RecordView<Account>> {
     this.authenticated();
     const data = parse(accountSchema, input);
+    return this.store.transaction(() => this.writeAccount(data));
+  }
+
+  async accountTemplates(): Promise<CoaTemplateMetadata[]> {
+    this.authenticated();
     return this.store.transaction(() => {
       this.requiredBook();
-      const previous = this.store.get<AccountRow>('SELECT * FROM erp_ac_accounts WHERE id=?', data.id);
-      this.revision(previous, data.revision);
-      if ((data.isGroup && data.purpose !== 'general') || (['cash', 'bank', 'receivable'].includes(data.purpose) && (data.rootType !== 'asset' || data.isGroup)) || (data.purpose === 'payable' && (data.rootType !== 'liability' || data.isGroup))) throw new ErpError('ACCOUNT_UNAVAILABLE', 'Account purpose must match its ledger/root classification.');
-      const seen = new Set([data.id]);
-      let parentId = data.parentId;
-      while (parentId) {
-        if (seen.has(parentId)) throw new ErpError('ACCOUNT_CYCLE', 'An account cannot be its own ancestor.');
-        seen.add(parentId);
-        const parent = this.account(parentId).value;
-        if (!parent.isGroup || parent.rootType !== data.rootType || (data.active && !parent.active)) throw new ErpError('ACCOUNT_UNAVAILABLE', 'Select an active group parent in the same root.');
-        parentId = parent.parentId;
+      return accountTemplates();
+    });
+  }
+  async accountTemplate(input: unknown): Promise<CoaTemplate> {
+    this.authenticated();
+    const data = parse(coaTemplateSchema, input);
+    return this.store.transaction(() => {
+      this.requiredBook();
+      return accountTemplate(data.templateId);
+    });
+  }
+  private accountImportPreview(data: CoaSelection, entries: CoaEntry[]): { preview: CoaImportPreview; existing: Map<string, AccountRow>; ordered: CoaEntry[] } {
+    const keys = entries.map((entry) => entry.code.normalize('NFKC').toLowerCase());
+    const existing = new Map<string, AccountRow>();
+    // SQLite Durable Objects allow at most 100 bound variables per query.
+    for (let offset = 0; offset < keys.length; offset += 100) {
+      const batch = keys.slice(offset, offset + 100);
+      for (const row of this.store.all<AccountRow>(`SELECT * FROM erp_ac_accounts WHERE codeKey IN (${batch.map(() => '?').join(',')})`, ...batch)) {
+        existing.set(row.codeKey, row);
       }
-      if (this.store.get('SELECT 1 FROM erp_ac_accounts WHERE parentId=? AND (rootType<>? OR ?=0) LIMIT 1', data.id, data.rootType, Number(data.isGroup))) throw new ErpError('ACCOUNT_UNAVAILABLE', 'An account with children must remain a group in their root.');
-      if (previous && (previous.rootType !== data.rootType || previous.purpose !== data.purpose || previous.isGroup !== Number(data.isGroup) || previous.parentId !== data.parentId) && this.store.get("SELECT 1 FROM erp_ac_lines l JOIN erp_ac_journals j ON j.id=l.journalId WHERE l.accountId=? AND j.status='posted' LIMIT 1", data.id)) throw new ErpError('ACCOUNT_HISTORY', 'The structure of an account with posted history is immutable.');
-      const codeKey = data.code.normalize('NFKC').toLowerCase();
-      if (this.store.get('SELECT 1 FROM erp_ac_accounts WHERE codeKey=? AND id<>?', codeKey, data.id)) throw new ErpError('CONFLICT', 'This normalized account code is already in use.');
-      const revision = globalThis.crypto.randomUUID();
-      const value: Account = { ...data, ...this.metadata(previous) };
-      const parameters: SqlParameter[] = [revision, data.code, codeKey, data.name, data.name.normalize('NFKC').toLowerCase(), data.rootType, data.purpose, Number(data.isGroup), data.parentId, Number(data.active), value.updatedAt, this.actorId];
-      if (previous) this.store.run('UPDATE erp_ac_accounts SET revision=?,code=?,codeKey=?,name=?,nameKey=?,rootType=?,purpose=?,isGroup=?,parentId=?,active=?,updatedAt=?,updatedBy=? WHERE id=? AND revision=?', ...parameters, data.id, data.revision);
-      else this.store.run('INSERT INTO erp_ac_accounts(revision,code,codeKey,name,nameKey,rootType,purpose,isGroup,parentId,active,updatedAt,updatedBy,id,schemaVersion,createdAt,createdBy) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)', ...parameters, data.id, value.createdAt, value.createdBy);
-      this.audit('account', data.id, 'save-account', revision);
-      return this.account(data.id);
+    }
+    const byCode = new Map(entries.map((entry) => [entry.code, entry]));
+    const selected = new Set(data.selectedCodes);
+    const rows = new Map<string, CoaPreviewRow>();
+    const ordered: CoaEntry[] = [];
+    const visit = (entry: CoaEntry): CoaPreviewRow => {
+      const visited = rows.get(entry.code);
+      if (visited) return visited;
+      const parent = entry.parentCode === null ? undefined : visit(byCode.get(entry.parentCode)!);
+      const account = existing.get(entry.code);
+      const parentAccount = entry.parentCode === null ? undefined : existing.get(entry.parentCode);
+      const conflicts: CoaConflict[] = [];
+      if (account) {
+        for (const field of ['name', 'rootType', 'purpose'] as const) {
+          if (account[field] !== entry[field]) conflicts.push({ field, expected: entry[field], actual: account[field] });
+        }
+        if ((account.isGroup === 1) !== entry.isGroup) conflicts.push({ field: 'isGroup', expected: entry.isGroup, actual: account.isGroup === 1 });
+        if (account.active !== 1) conflicts.push({ field: 'active', expected: true, actual: false });
+        const expectedParent = entry.parentCode === null ? null : parentAccount?.id;
+        if (expectedParent === undefined || account.parentId !== expectedParent) {
+          conflicts.push({ field: 'parent', expected: expectedParent ?? entry.parentCode, actual: account.parentId });
+        }
+      }
+      if (parent?.status === 'conflict' && !conflicts.some((conflict) => conflict.field === 'parent')) {
+        conflicts.push({ field: 'parent', expected: `Compatible active group ${entry.parentCode}`, actual: `Conflict in parent ${entry.parentCode}` });
+      }
+      const row: CoaPreviewRow = {
+        ...entry, automaticParent: !selected.has(entry.code), status: conflicts.length ? 'conflict' : account ? 'existing' : 'create',
+        ...(account ? { existingId: account.id } : {}), ...(conflicts.length ? { conflicts } : {}),
+      };
+      rows.set(entry.code, row);
+      ordered.push(entry);
+      return row;
+    };
+    const previewRows = entries.map(visit);
+    const createCount = previewRows.filter((row) => row.status === 'create').length;
+    const existingCount = previewRows.filter((row) => row.status === 'existing').length;
+    const conflictCount = previewRows.filter((row) => row.status === 'conflict').length;
+    return { preview: { ...data, rows: previewRows, createCount, existingCount, conflictCount, canImport: data.selectedCodes.length > 0 && conflictCount === 0 }, existing, ordered };
+  }
+  async previewAccountImport(input: unknown): Promise<CoaImportPreview> {
+    this.authenticated();
+    const data = parse(coaSelectionSchema, input);
+    return this.store.transaction(() => {
+      this.requiredBook();
+      return this.accountImportPreview(data, accountImportClosure(data)).preview;
+    });
+  }
+  private accountImportReceipt(data: CoaImportInput, hash: string): CoaImportResult | undefined {
+    if (this.store.get('SELECT 1 FROM erp_ac_commands WHERE commandId=?', data.commandId)) throw new ErpError('IDEMPOTENCY_CONFLICT', 'This command ID belongs to a different action, actor or payload.');
+    const receipt = this.store.get<CoaReceiptRow>('SELECT * FROM erp_ac_coa_imports WHERE commandId=?', data.commandId);
+    if (!receipt) return undefined;
+    if (receipt.actorId !== this.actorId || receipt.canonicalPayloadHash !== hash) throw new ErpError('IDEMPOTENCY_CONFLICT', 'This command ID belongs to a different action, actor or payload.');
+    let saved: unknown;
+    try { saved = JSON.parse(receipt.resultJson); }
+    catch { throw new ErpError('INVALID_RECORD', 'The saved account import receipt is malformed. A reviewed repair is required.'); }
+    const result = coaImportResultSchema.safeParse(saved);
+    if (!result.success || result.data.commandId !== data.commandId || receipt.commandId !== data.commandId ||
+        result.data.templateId !== data.templateId || receipt.templateId !== data.templateId ||
+        result.data.templateVersion !== data.templateVersion || receipt.templateVersion !== data.templateVersion ||
+        result.data.completedAt !== receipt.createdAt || canonical(result.data.selectedCodes) !== canonical(data.selectedCodes)) {
+      throw new ErpError('INVALID_RECORD', 'The saved account import receipt is malformed. A reviewed repair is required.');
+    }
+    return result.data;
+  }
+  async importAccounts(input: unknown): Promise<CoaImportResult> {
+    this.authenticated();
+    const data = parse(coaImportSchema, input);
+    const { commandId, ...selection } = data;
+    const hash = await commandHash('import-accounts', this.actorId, selection);
+    return this.store.transaction(() => {
+      this.requiredBook();
+      const replay = this.accountImportReceipt(data, hash);
+      if (replay) return replay;
+      const entries = accountImportClosure(selection);
+      const { preview, existing, ordered } = this.accountImportPreview(selection, entries);
+      if (!preview.canImport) throw new ErpError('COA_IMPORT_CONFLICT', 'The selected accounts or their parents conflict with the current book. Preview again before importing.');
+      const ids = new Map<string, string>();
+      const created: CoaAccountRef[] = [];
+      const existingRefs: CoaAccountRef[] = [];
+      for (const entry of ordered) {
+        const previous = existing.get(entry.code);
+        if (previous) {
+          ids.set(entry.code, previous.id);
+          existingRefs.push({ code: entry.code, id: previous.id, revision: previous.revision });
+          continue;
+        }
+        const account = this.writeAccount(parse(accountSchema, {
+          id: globalThis.crypto.randomUUID(), revision: null, code: entry.code, name: entry.name,
+          rootType: entry.rootType, purpose: entry.purpose, isGroup: entry.isGroup,
+          parentId: entry.parentCode === null ? null : ids.get(entry.parentCode), active: true,
+        }), `import-accounts:${selection.templateId}:${selection.templateVersion}`);
+        ids.set(entry.code, account.id);
+        created.push({ code: entry.code, id: account.id, revision: account.revision });
+      }
+      created.sort((left, right) => left.code < right.code ? -1 : left.code > right.code ? 1 : 0);
+      existingRefs.sort((left, right) => left.code < right.code ? -1 : left.code > right.code ? 1 : 0);
+      const result: CoaImportResult = { ...data, created, existing: existingRefs, completedAt: this.now().toISOString() };
+      this.store.run('INSERT INTO erp_ac_coa_imports(commandId,actorId,canonicalPayloadHash,templateId,templateVersion,resultJson,createdAt) VALUES(?,?,?,?,?,?,?)', commandId, this.actorId, hash, data.templateId, data.templateVersion, JSON.stringify(result), result.completedAt);
+      return result;
     });
   }
   private writeParty(data: PartyInput, source?: Awaited<ReturnType<ErpAccountingSource['customer']>>): RecordView<Party> {
@@ -317,6 +447,7 @@ export class AccountingService {
     });
   }
   private receipt(commandId: string, action: string, hash: string): FinancialResult | undefined {
+    if (this.store.get('SELECT 1 FROM erp_ac_coa_imports WHERE commandId=?', commandId)) throw new ErpError('IDEMPOTENCY_CONFLICT', 'This command ID belongs to a different action, actor or payload.');
     const receipt = this.store.get<ReceiptRow>('SELECT * FROM erp_ac_commands WHERE commandId=?', commandId);
     if (!receipt) return undefined;
     if (receipt.action !== action || receipt.actorId !== this.actorId || receipt.canonicalPayloadHash !== hash) throw new ErpError('IDEMPOTENCY_CONFLICT', 'This command ID belongs to a different action, actor or payload.');

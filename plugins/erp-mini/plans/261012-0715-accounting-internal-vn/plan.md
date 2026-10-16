@@ -51,7 +51,7 @@ Trước thay đổi exported symbols, chạy LSP references; giữ current call
 - [x] Node built session/CSRF/permission/browser pass; CF CRM/sales không regress, accounting không được quảng cáo supported.
 - [x] Source pair/lockfiles/artifact provenance và mọi environmental limits được ghi đúng, không suy production accounting compliance.
 
-## Validation log implementation
+## Validation log implementation — 2026-10-12
 
 - P `npm run check`: typecheck, **52/52 tests** (35 accounting/report + 17 native ERP) và build pass. Hai accounting suites chạy lại bằng Node **24.15.0: 35/35 pass**. Real SQLite migrations, fault rollback, immutable history, independent writer processes, chronology và generic/mixed reversal B21 được kiểm chứng; không lấy design probes thay acceptance.
 - Baseline compatibility với **đúng H working tree**: isolated `npm ci`, plugin/host checks, packed installation, explicit Node VND migration, built Node home200/native anonymous401/accounting401 và actual local Worker home200/native401/accounting404 pass. Không chạy latest-core upgrade hoặc deploy.
@@ -66,8 +66,19 @@ Trước thay đổi exported symbols, chạy LSP references; giữ current call
 - Final documented `npm pack` SHA-256 `f0e8ec9a5a1985178f216c77edb32dce6fa405b994a3406842ae50dabadb7d2a`: so sánh archive xác nhận **38 src/dist/migration files byte-identical** với tarball đã chạy toàn bộ QA; package runtime manifest giống hệt ngoài description. Pure/Node exports và SQL asset vẫn có đủ. Docs thay đổi không được mô tả như một runtime run khác.
 - Final documentation validation: **17 Markdown files, 110 relative links, 0 broken**. Không để status pending/todo hoặc acceptance unchecked trong bảy plan files.
 
+## Startup migration change — 2026-10-13
+
+- Người dùng yêu cầu không phải migrate thủ công khi cài plugin. Chọn paired Node startup, không browser reload/postinstall/build: dev server-setup hook và built `scripts/start.mjs` gọi migration owner với captured manifest trước listen. Standalone CLI giữ cho operator; không auto configure book/actor/StartDate/masters/opening.
+- Physical plugin tarball trong host isolated: typecheck0 errors/warnings/hints và build pass; accounting DB chưa tồn tại sau install/typecheck/build. Fresh built Node26 và fresh dev tự tạo schema hợp lệ, settings/journals/commands/audits đều0 trước synthetic fixture.
+- Seed synthetic posted journal/receipt rồi restart: built Node24.15 và actual dev restart giữ digest toàn bộ9 tables; replay original command trả đúng receipt, không thêm audit/command/sequence.
+- Actual built startup với checksum sai hoặc version mới hơn exit1 trước listen, digest DB không đổi. Captured data-directory drift exit1 trước tạo redirected directory. Actual dev với version mới hơn cũng exit1/no listener/giữ dữ liệu; daemon CLI chỉ báo child exited, không claim đã quan sát schema stack từ parent.
+- USD dev startup: accounting route404, không tạo accounting.db. Existing baseline compatibility runner đã đổi thành fresh Node startup không migrate trước, mở real packed adapter để kiểm schema/no business seed; selected-pair baseline EmDash1.2 pass, **52/52 tests**, host typecheck/build, Node home200/accounting401 và actual local Worker home200/accounting404.
+- QA dependency symlink ban đầu gây Astro cross-root compile-cache failure; đổi sang physical dependencies/plugin tar rồi typecheck/build pass. Đây là lỗi layout QA, không sửa core hoặc suppress lỗi để vượt gate.
+- Người dùng đã cho phép commit local các thay đổi startup/runner/docs; chưa cho phép push cặp thay đổi mới này. GitHub workflows vẫn pin companion revisions cũ; cần cập nhật sang exact tested accounting-startup commits khi publishing được cho phép. Local selected-pair run không phải bằng chứng GitHub CI của pinned pair đã pass. Không chạy latest upgrade, deploy hoặc browser-auth QA lại cho thay đổi không sửa UI/auth.
+- Recheck docs sau thay đổi: **17 Markdown files, 110 relative links và6 Markdown anchors, 0 broken**. Sửa cả release README và compatibility guide sang heading backup/rollback hiện tại.
+
 ## Operator inputs và giới hạn
 
-StartDate, tài khoản nội bộ và số dư đầu kỳ do operator cung cấp khi setup accounting; không suy từ CRM hoặc mặc định pháp định. Chưa có performance/capacity, stress/crash durability, live-provider hoặc production baseline; chưa chạy latest-core upgrade. Không thao tác restart/migrate/reset user live dev/data/key. Production rollout, push/PR và chế độ kế toán pháp định cần authorization riêng; commit và local QA không cấp quyền deploy.
+StartDate, tài khoản nội bộ và số dư đầu kỳ do operator cung cấp khi setup accounting; không suy từ CRM hoặc mặc định pháp định. Chưa có performance/capacity, stress/crash durability, live-provider hoặc production baseline; chưa chạy latest-core upgrade. Restart/migration trên instance dev hiện có chỉ thực hiện theo yêu cầu người dùng; không reset dữ liệu, `.env` hoặc key. Production rollout, push/PR và chế độ kế toán pháp định cần authorization riêng; commit và local QA không cấp quyền deploy.
 
 <!-- slug: accounting-internal-vn -->

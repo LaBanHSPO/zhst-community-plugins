@@ -137,3 +137,18 @@
 @media (prefers-reduced-motion: reduce) {
   .erp-mini button, .erp-mini .erp-tabs a { transition: none; }
 }
+.erp-mini .erp-coa-import { min-width: 0; }
+.erp-mini .erp-coa-import > .erp-field { max-width: 44rem; }
+.erp-mini .erp-coa-metadata h4 { margin-bottom: .5rem; }
+.erp-mini .erp-coa-metadata ul { margin-block: .5rem .875rem; padding-inline-start: 1.5rem; }
+.erp-mini .erp-coa-metadata li + li { margin-top: .375rem; }
+.erp-mini .erp-coa-metadata a { color: var(--erp-accent); text-decoration: underline; }
+.erp-mini .erp-coa-table { min-width: 62rem; }
+.erp-mini .erp-coa-table th[scope="row"] { min-width: 20rem; font-weight: 550; }
+.erp-mini .erp-coa-table td:first-child input { display: block; margin-inline: auto; }
+.erp-mini .erp-coa-account { min-width: 0; }
+.erp-mini .erp-coa-conflicts { min-width: 18rem; margin-block: .5rem; padding-inline-start: 1.25rem; }
+.erp-mini .erp-coa-conflicts li + li { margin-top: .375rem; }
+.erp-mini .erp-coa-preview { margin-top: 1.5rem; }
+.erp-mini .erp-coa-import .erp-savebar > span { flex: 1 1 14rem; min-width: 0; }
+.erp-mini .erp-coa-import :is(.erp-toolbar, .erp-actions, .erp-savebar) > button { max-width: 100%; white-space: normal; }

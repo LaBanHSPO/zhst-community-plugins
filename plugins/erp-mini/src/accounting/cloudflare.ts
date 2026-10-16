@@ -1,5 +1,5 @@
 import { ErpError } from '../validation.js';
-import { accountingMigration } from './migration.generated.js';
+import { accountingMigrations } from './migration.generated.js';
 import type { AccountingStore, SqlParameter, WriteResult } from './store.js';
 
 export type DurableSqlBinding = string | number | null | Uint8Array;
@@ -13,7 +13,7 @@ export interface DurableAccountingStorage {
   transactionSync<T>(callback: () => T): T;
 }
 export interface DurableAccountingSchemaStatus {
-  version: 1 | null;
+  version: 1 | 2 | null;
   checksum: string | null;
   bookConfigured: boolean;
 }
@@ -34,6 +34,7 @@ const assertionCodes: Record<string, true> = {
   ACCOUNT_HISTORY: true, PARTY_HISTORY: true, BOOK_REQUIRED: true, INVALID_SEQUENCE: true,
   UNBALANCED: true, INVALID_SNAPSHOT: true, OVER_ALLOCATION: true, ALLOCATION_DATE_CONFLICT: true,
   INVALID_REVERSAL: true, ACTIVE_SETTLEMENT: true, INVALID_SETTLEMENT: true,
+  COA_IMPORT_IMMUTABLE: true, IDEMPOTENCY_CONFLICT: true,
 };
 function safeError(error: unknown): ErpError {
   if (error instanceof ErpError) return error;
@@ -48,21 +49,25 @@ function safeError(error: unknown): ErpError {
 function schemaError(): never {
   throw new ErpError('SCHEMA_VERSION', 'The accounting schema is missing or incompatible. Run the explicit migration with its matching approved artifact.');
 }
-function verify(storage: DurableAccountingStorage, allowEmpty: boolean): boolean {
-  const rows = storage.sql.exec(schemaQuery).toArray() as unknown as SchemaRow[];
-  if (rows.length === 0) { if (allowEmpty) return false; schemaError(); }
-  const expected = accountingMigration.schema;
-  if (rows.length !== expected.length || rows.some((row, index) => {
-    const other = expected[index];
-    return !other || row.type !== other.type || row.name !== other.name || row.tbl_name !== other.tbl_name || row.sql !== other.sql;
-  })) schemaError();
-  const applied = storage.sql.exec('SELECT version,checksum FROM erp_ac_migrations ORDER BY version').toArray();
-  if (applied.length !== 1 || applied[0]?.version !== 1 || applied[0]?.checksum !== accountingMigration.checksum) schemaError();
+function verify(storage: DurableAccountingStorage, allowEmpty: boolean): number {
   if (storage.sql.exec('PRAGMA foreign_keys').toArray()[0]?.foreign_keys !== 1) schemaError();
-  for (const row of expected) {
+  const rows = storage.sql.exec(schemaQuery).toArray() as unknown as SchemaRow[];
+  if (rows.length === 0) { if (allowEmpty) return 0; schemaError(); }
+  const expected = accountingMigrations.find((artifact) => rows.length === artifact.schema.length && rows.every((row, index) => {
+    const other = artifact.schema[index];
+    return other && row.type === other.type && row.name === other.name && row.tbl_name === other.tbl_name && row.sql === other.sql;
+  }));
+  if (!expected) schemaError();
+  const applied = storage.sql.exec('SELECT version,checksum FROM erp_ac_migrations ORDER BY version').toArray();
+  if (applied.length !== expected.version || applied.some((row, index) =>
+    row.version !== accountingMigrations[index]?.version || row.checksum !== accountingMigrations[index]?.checksum
+  )) schemaError();
+  // Scope checks to plugin tables: unrelated runtime tables and hidden KV are
+  // runtime-owned, but every accounting reference must remain valid.
+  for (const row of expected.schema) {
     if (row.type === 'table' && storage.sql.exec(`PRAGMA foreign_key_check(${row.name})`).toArray().length !== 0) schemaError();
   }
-  return true;
+  return applied.length;
 }
 function binding(value: SqlParameter): DurableSqlBinding {
   if (typeof value === 'bigint') {
@@ -154,26 +159,44 @@ class DurableAccountingStore implements AccountingStore {
 }
 export function openDurableAccountingStore(storage: DurableAccountingStorage): AccountingStore {
   try {
-    verify(storage, false);
+    if (verify(storage, false) !== accountingMigrations.length) schemaError();
     storage.sql.exec('PRAGMA recursive_triggers=ON').toArray();
     return new DurableAccountingStore(storage);
   } catch (error) { throw safeError(error); }
 }
 export function migrateDurableAccountingStore(storage: DurableAccountingStorage): void {
   try {
-    if (verify(storage, true)) return;
+    if (verify(storage, true) === accountingMigrations.length) return;
     synchronous(storage, () => {
-      if (verify(storage, true)) return;
-      storage.sql.exec(accountingMigration.sql).toArray();
-      storage.sql.exec('INSERT INTO erp_ac_migrations(version,checksum,appliedAt) VALUES(1,?,?)', accountingMigration.checksum, new Date().toISOString()).toArray();
-      verify(storage, false);
+      const prefix = verify(storage, true);
+      if (prefix === accountingMigrations.length) return;
+      // DO SQL forbids BEGIN/SAVEPOINT and cannot disable foreign_keys.
+      // Shipped rebuilds have only NO ACTION FKs (no cascading data loss).
+      // Defer temporary missing-parent references until final names are restored.
+      storage.sql.exec('PRAGMA defer_foreign_keys=ON').toArray();
+      try {
+        for (const artifact of accountingMigrations.slice(prefix)) {
+          storage.sql.exec(artifact.sql).toArray();
+          storage.sql.exec('INSERT INTO erp_ac_migrations(version,checksum,appliedAt) VALUES(?,?,?)', artifact.version, artifact.checksum, new Date().toISOString()).toArray();
+        }
+        // DROP TABLE's implicit deletes can leave deferred counters even when
+        // replacement tables contain the same keys. Never clear those counters
+        // until exact latest schema, receipt chain and every FK have passed.
+        if (verify(storage, false) !== accountingMigrations.length) schemaError();
+      } finally {
+        // Reset inside transactionSync on success AND rollback; do not leak
+        // deferred enforcement into the runtime's surrounding implicit transaction.
+        storage.sql.exec('PRAGMA defer_foreign_keys=OFF').toArray();
+      }
     });
   } catch (error) { throw safeError(error); }
 }
 export function durableAccountingSchemaStatus(storage: DurableAccountingStorage): DurableAccountingSchemaStatus {
   try {
-    if (!verify(storage, true)) return { version: null, checksum: null, bookConfigured: false };
-    return { version: 1, checksum: accountingMigration.checksum, bookConfigured: storage.sql.exec("SELECT 1 FROM erp_ac_settings WHERE id='book'").toArray().length === 1 };
+    const prefix = verify(storage, true);
+    if (prefix === 0) return { version: null, checksum: null, bookConfigured: false };
+    const artifact = accountingMigrations[prefix - 1]!;
+    return { version: artifact.version, checksum: artifact.checksum, bookConfigured: storage.sql.exec("SELECT 1 FROM erp_ac_settings WHERE id='book'").toArray().length === 1 };
   } catch (error) { throw safeError(error); }
 }
 export type { AccountingStore } from './store.js';

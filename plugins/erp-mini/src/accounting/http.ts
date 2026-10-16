@@ -2,7 +2,7 @@ import type { ApiResult } from '../model.js';
 import { ErpError, parse } from '../validation.js';
 import type { AccountingService } from './service.js';
 import type { ErpAccountingSource } from './erp-source.js';
-import { accountSchema, accountingGetSchema, accountingListSchema, configureBookSchema, draftActionSchema, journalSchema, linkCustomerSchema, partySchema, postJournalSchema, reportSchema, reverseJournalSchema, settlementSchema } from './validation.js';
+import { accountSchema, accountingGetSchema, accountingListSchema, coaImportSchema, coaSelectionSchema, coaTemplateSchema, configureBookSchema, draftActionSchema, journalSchema, linkCustomerSchema, partySchema, postJournalSchema, reportSchema, reverseJournalSchema, settlementSchema } from './validation.js';
 
 export const ACCOUNTING_ACTIONS = {
   info: { method: 'GET', maxBytes: 0 },
@@ -11,6 +11,10 @@ export const ACCOUNTING_ACTIONS = {
   get: { method: 'POST', maxBytes: 4096 },
   report: { method: 'POST', maxBytes: 4096 },
   'save-account': { method: 'POST', maxBytes: 65536 },
+  'account-templates': { method: 'GET', maxBytes: 0 },
+  'account-template': { method: 'POST', maxBytes: 4096 },
+  'preview-account-import': { method: 'POST', maxBytes: 65536 },
+  'import-accounts': { method: 'POST', maxBytes: 65536 },
   'save-party': { method: 'POST', maxBytes: 65536 },
   'link-customer': { method: 'POST', maxBytes: 65536 },
   'save-journal': { method: 'POST', maxBytes: 65536 },
@@ -25,6 +29,12 @@ export function validateAccountingActionInput(action: string, input: unknown): u
     case 'info':
       if (input !== undefined) throw new ErpError('INVALID_INPUT', 'Accounting info does not accept a request body.');
       return undefined;
+    case 'account-templates':
+      if (input !== undefined) throw new ErpError('INVALID_INPUT', 'Account templates do not accept a request body.');
+      return undefined;
+    case 'account-template': return parse(coaTemplateSchema, input);
+    case 'preview-account-import': return parse(coaSelectionSchema, input);
+    case 'import-accounts': return parse(coaImportSchema, input);
     case 'configure-book': return parse(configureBookSchema, input);
     case 'list': return parse(accountingListSchema, input);
     case 'get': return parse(accountingGetSchema, input);
@@ -52,6 +62,10 @@ export async function executeAccountingAction(service: AccountingService, action
       case 'get': result = await service.get(data); break;
       case 'report': result = await service.report(data); break;
       case 'save-account': result = await service.saveAccount(data); break;
+      case 'account-templates': result = await service.accountTemplates(); break;
+      case 'account-template': result = await service.accountTemplate(data); break;
+      case 'preview-account-import': result = await service.previewAccountImport(data); break;
+      case 'import-accounts': result = await service.importAccounts(data); break;
       case 'save-party': result = await service.saveParty(data); break;
       case 'link-customer': result = await service.linkCustomer(data, source); break;
       case 'save-journal': result = await service.saveJournal(data); break;

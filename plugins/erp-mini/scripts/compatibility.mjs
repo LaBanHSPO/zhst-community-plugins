@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
@@ -109,9 +109,31 @@ try {
     WRANGLER_SEND_METRICS: 'false', CI: 'true' };
   command(['run', 'typecheck'], theme, env);
   command(['run', 'build'], theme, env);
-  command(['run', 'accounting:migrate', '--', '--settings', 'dist/accounting-settings.json'], theme, env);
+  try {
+    await access(join(theme, '.local/accounting.db'));
+    throw new Error('Install/typecheck/build must not create an accounting database.');
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
   server = spawn(process.execPath, ['scripts/start.mjs'], { cwd: theme, env, stdio: ['ignore', 'inherit', 'inherit'] });
   await checkServer(origin, 'Built Node host', true);
+  const schemaProbe = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import { openAccountingDatabase } from '@zerohost/plugin-erp-mini/accounting-node';
+    const store = openAccountingDatabase('.local/accounting.db');
+    try {
+      const versions = store.all('SELECT version FROM erp_ac_migrations ORDER BY version').map((row) => row.version);
+      if (JSON.stringify(versions) !== '[1,2]') throw new Error('Startup must apply the complete accounting schema1→2 chain.');
+      for (const table of ['erp_ac_settings', 'erp_ac_accounts', 'erp_ac_parties', 'erp_ac_journals',
+        'erp_ac_lines', 'erp_ac_allocations', 'erp_ac_commands', 'erp_ac_coa_imports', 'erp_ac_audit']) {
+        if (store.get('SELECT count(*) AS count FROM ' + table).count !== 0) {
+          throw new Error('Startup must not configure a book or seed business records: ' + table);
+        }
+      }
+    } finally { store.close(); }
+  `], { cwd: theme, env, stdio: 'inherit' });
+  if (schemaProbe.error) throw schemaProbe.error;
+  if (schemaProbe.status !== 0) throw new Error('Built Node startup did not initialize an empty compatible accounting schema.');
+  console.log('PASS: fresh built Node startup initialized accounting schema without an explicit migration or business seed.');
   await stopServer();
   command(['run', 'accounting:test'], theme, env);
 
@@ -144,7 +166,7 @@ try {
     // This file was created by this loop in its disposable copy, never a caller's config.
     await rm(join(theme, 'wrangler.json'));
   }
-  console.log(`PASS: packed plugin, Node and workerd SQLite regressions, explicit accounting migration, typechecks, Node/VND Worker session denial and USD Worker route exclusion; core ${version}.`);
+  console.log(`PASS: packed plugin, Node and workerd SQLite regressions, automatic Node accounting startup migration, typechecks, Node/VND Worker session denial and USD Worker route exclusion; core ${version}.`);
   console.log('Authenticated browser, paired restore and deployed Cloudflare acceptance remain separate release checks. No customer upgraded.');
 } finally {
   await stopServer();

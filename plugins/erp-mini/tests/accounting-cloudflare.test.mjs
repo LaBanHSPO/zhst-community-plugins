@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,8 @@ import { Miniflare } from 'miniflare';
 // Bundle the compiled package as the host would, with no nodejs_compat. esbuild's
 // browser resolver rejects Node builtins anywhere in the Cloudflare import graph.
 const bundled = await build({ entryPoints: [fileURLToPath(new URL('./accounting-cloudflare-worker.mjs', import.meta.url))], bundle: true, write: false, platform: 'browser', format: 'esm', external: ['cloudflare:workers'] });
+const legacySql = await readFile(new URL('../migrations/0001_accounting.sql', import.meta.url), 'utf8');
+const legacyArtifact = { sql: legacySql, checksum: createHash('sha256').update(legacySql).digest('hex') };
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'erp-workerd-accounting-'));
   const options = { script: bundled.outputFiles[0].text, modules: true, compatibilityDate: '2026-07-30', durableObjects: { ACCOUNTING: { className: 'TestAccounting', useSQLite: true } }, durableObjectsPersist: directory };
@@ -31,9 +33,13 @@ async function successful(f, operation, input, action, actor, name) {
   assert.equal(result.ok, true, JSON.stringify(result));
   return result.data;
 }
-async function action(f, name, input, actor) { return successful(f, 'service', input, name, actor); }
+async function action(f, name, input, actor, objectName) { return successful(f, 'service', input, name, actor, objectName); }
 function line(accountId, debitMinor, creditMinor, partyId = null, allocations = []) {
   return { accountId, debitMinor, creditMinor, partyId, allocations };
+}
+function accountInput(record, changes = {}) {
+  const { code, name, rootType, purpose, isGroup, parentId, active } = record.value;
+  return { id: record.id, revision: record.revision, code, name, rootType, purpose, isGroup, parentId, active, ...changes };
 }
 async function setup(f) {
   await successful(f, 'migrate');
@@ -67,8 +73,12 @@ test('workerd runtime never auto-migrates; explicit migration is empty/idempoten
   assert.deepEqual(await successful(f, 'status'), { version: null, checksum: null, bookConfigured: false });
   assert.equal((await f.send('service', undefined, 'info')).error.code, 'SCHEMA_VERSION');
   const status = await successful(f, 'migrate');
-  assert.equal(status.version, 1); assert.match(status.checksum, /^[a-f0-9]{64}$/); assert.equal(status.bookConfigured, false);
+  assert.equal(status.version, 2); assert.match(status.checksum, /^[a-f0-9]{64}$/); assert.equal(status.bookConfigured, false);
   const migration = await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_migrations' });
+  assert.deepEqual(migration.map(({ version }) => version), [1, 2]);
+  for (const name of ['settings', 'accounts', 'parties', 'journals', 'lines', 'allocations', 'audit', 'commands', 'coa_imports']) {
+    assert.deepEqual(await successful(f, 'raw', { sql: `SELECT * FROM erp_ac_${name}` }), [], name);
+  }
   await successful(f, 'migrate');
   assert.deepEqual(await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_migrations' }), migration);
   assert.equal((await action(f, 'info')).book, null);
@@ -81,12 +91,12 @@ test('workerd runtime never auto-migrates; explicit migration is empty/idempoten
 test('migration failure after real SQL DDL rolls back all plugin schema and permits explicit retry', async (t) => {
   const f = await fixture(t);
   assert.deepEqual(await successful(f, 'migration-fault'), { failure: 'ACCOUNTING_STORAGE', status: { version: null, checksum: null, bookConfigured: false } });
-  assert.equal((await successful(f, 'migrate')).version, 1);
+  assert.equal((await successful(f, 'migrate')).version, 2);
 });
 
 test('checksum, newer version, missing triggers and unrecognized plugin-owned objects fail closed without repair', async (t) => {
   const f = await fixture(t);
-  const mutations = ["UPDATE erp_ac_migrations SET checksum=printf('%064d',0)", 'UPDATE erp_ac_migrations SET version=2', 'DROP TRIGGER erp_ac_settings_update', 'CREATE TABLE erp_ac_unapproved(value TEXT)', 'CREATE TRIGGER foreign_named_trigger AFTER INSERT ON erp_ac_accounts BEGIN SELECT 1; END'];
+  const mutations = ["UPDATE erp_ac_migrations SET checksum=printf('%064d',0)", 'UPDATE erp_ac_migrations SET version=3 WHERE version=2', 'DELETE FROM erp_ac_migrations WHERE version=1', 'DROP TRIGGER erp_ac_settings_update', 'DROP TRIGGER erp_ac_coa_imports_insert', 'CREATE TABLE erp_ac_unapproved(value TEXT)', 'CREATE TRIGGER foreign_named_trigger AFTER INSERT ON erp_ac_accounts BEGIN SELECT 1; END'];
   for (const [index, sql] of mutations.entries()) {
     const name = `drift-${index}`;
     await successful(f, 'migrate', undefined, undefined, undefined, name);
@@ -203,4 +213,186 @@ test('long Unicode and literal-symbol accounting searches preserve matching reco
   assert.deepEqual((await action(f, 'list', { entity: 'parties', search: term.toUpperCase() })).items.map(item => item.id), [party.id]);
   assert.deepEqual((await action(f, 'list', { entity: 'parties', search: '%_\\' })).items.map(item => item.id), [party.id]);
   assert.deepEqual((await action(f, 'list', { entity: 'accounts', search: code.toLowerCase() })).items.map(item => item.id), [account.id]);
+});
+
+test('workerd imports both complete catalogs without seeding and posts real result-root line snapshots', async (t) => {
+  const f = await fixture(t);
+  for (const templateId of ['vn-tt133-2016', 'vn-tt99-2025']) {
+    const invoke = (name, input) => action(f, name, input, undefined, templateId);
+    const raw = (sql) => successful(f, 'raw', { sql }, undefined, undefined, templateId);
+    await successful(f, 'migrate', undefined, undefined, undefined, templateId);
+    await invoke('configure-book', { startDate: '2030-01-01' });
+    assert.equal((await invoke('account-templates')).length, 2);
+    const catalog = await invoke('account-template', { templateId });
+    const selectedCodes = catalog.entries.filter((entry) => !entry.isGroup).map((entry) => entry.code);
+    const selection = { templateId, templateVersion: catalog.templateVersion, selectedCodes };
+    const preview = await invoke('preview-account-import', selection);
+    assert.equal(preview.canImport, true);
+    assert.equal(preview.createCount, catalog.entries.length);
+    assert.equal(preview.conflictCount, 0);
+    const receipt = await invoke('import-accounts', { ...selection, commandId: randomUUID() });
+    assert.equal(receipt.created.length, catalog.entries.length);
+    assert.deepEqual(receipt.existing, []);
+    const accounts = await raw('SELECT * FROM erp_ac_accounts ORDER BY code');
+    const byCode = new Map(accounts.map((entry) => [entry.code, entry]));
+    for (const entry of catalog.entries) {
+      const saved = byCode.get(entry.code);
+      assert.equal(saved.name, entry.name);
+      assert.equal(saved.rootType, entry.rootType);
+      assert.equal(saved.purpose, entry.purpose);
+      assert.equal(saved.isGroup, Number(entry.isGroup));
+      assert.equal(saved.parentId, entry.parentCode === null ? null : byCode.get(entry.parentCode).id);
+    }
+    assert.equal(byCode.get('911').rootType, 'result');
+    assert.equal(byCode.get('214').rootType, 'asset');
+    assert.equal(byCode.get('229').rootType, 'asset');
+    if (templateId === 'vn-tt133-2016') {
+      assert.equal(byCode.get('1111').purpose, 'cash');
+      assert.equal(byCode.get('1122').purpose, 'bank');
+      assert.equal(byCode.get('6421').name, 'Chi phí bán hàng');
+    } else {
+      assert.equal(byCode.has('1111'), false);
+      assert.equal(byCode.get('111').purpose, 'cash');
+      assert.equal(byCode.get('6421').name, 'Chi phí nhân viên quản lý');
+      assert.equal(byCode.get('215121').parentId, byCode.get('21512').id);
+      assert.equal(byCode.get('21512').parentId, byCode.get('2151').id);
+      assert.equal(byCode.get('2151').parentId, byCode.get('215').id);
+    }
+    const incomeCode = templateId === 'vn-tt133-2016' ? '5111' : '511';
+    const draft = await invoke('save-journal', { id: randomUUID(), revision: null, kind: 'journal', postingDate: '2030-02-01', memo: 'Result root on workerd', reference: 'TEST', lines: [line(byCode.get(incomeCode).id, 100, 0), line(byCode.get('911').id, 0, 100)] });
+    assert.equal((await invoke('post-journal', { id: draft.id, revision: draft.revision, commandId: randomUUID() })).postedSequence, 1);
+    assert.deepEqual(await raw("SELECT accountRootType FROM erp_ac_lines WHERE accountRootType='result'"), [{ accountRootType: 'result' }]);
+    const trial = await invoke('report', { type: 'trial-balance', from: '2030-01-01', to: '2030-12-31' });
+    assert.equal(trial.items.find((entry) => entry.accountId === byCode.get('911').id).rootType, 'result');
+  }
+});
+
+test('workerd subset closure, exact immutable replay after rename/reopen, and reciprocal command fences coexist', async (t) => {
+  const f = await fixture(t);
+  await successful(f, 'migrate');
+  await action(f, 'configure-book', { startDate: '2030-01-01' });
+  const selection = { templateId: 'vn-tt99-2025', templateVersion: '1', selectedCodes: ['215121', '33311'] };
+  const command = { ...selection, commandId: randomUUID() };
+  const preview = await action(f, 'preview-account-import', selection);
+  assert.deepEqual(preview.rows.map((entry) => entry.code).sort(), ['215', '2151', '21512', '215121', '333', '3331', '33311']);
+  const receipt = await action(f, 'import-accounts', command);
+  assert.deepEqual(receipt.created.map((entry) => entry.code), ['215', '2151', '21512', '215121', '333', '3331', '33311']);
+  const before = await databaseSnapshot(f);
+  const existing = await action(f, 'import-accounts', { ...command, commandId: randomUUID() });
+  assert.deepEqual(existing.created, []);
+  assert.deepEqual(existing.existing, receipt.created);
+  assert.deepEqual(await databaseSnapshot(f), before);
+  const imported = receipt.created.find((entry) => entry.code === '215121');
+  const account = await action(f, 'get', { entity: 'accounts', id: imported.id });
+  await action(f, 'save-account', accountInput(account, { code: 'RENAMED-215121' }));
+  const renamed = await databaseSnapshot(f);
+  await f.restart();
+  assert.deepEqual(await action(f, 'import-accounts', command), receipt);
+  assert.deepEqual(await databaseSnapshot(f), renamed);
+  assert.equal((await f.send('service', command, 'import-accounts', 'admin-2')).error.code, 'IDEMPOTENCY_CONFLICT');
+  assert.equal((await f.send('service', { ...command, selectedCodes: ['215122'] }, 'import-accounts')).error.code, 'IDEMPOTENCY_CONFLICT');
+  assert.deepEqual(await successful(f, 'guarded-sql', [
+    { sql: "UPDATE erp_ac_coa_imports SET actorId='forged' WHERE commandId=?", parameters: [command.commandId] },
+    { sql: 'DELETE FROM erp_ac_coa_imports WHERE commandId=?', parameters: [command.commandId] },
+    { sql: 'INSERT OR REPLACE INTO erp_ac_coa_imports SELECT * FROM erp_ac_coa_imports WHERE commandId=?', parameters: [command.commandId] },
+    { sql: "INSERT INTO erp_ac_commands(commandId,action,actorId,canonicalPayloadHash,journalId,revision,postedSequence,createdAt) VALUES(?,'post-journal','admin-1',?,?,'r1',1,'2030-01-01')", parameters: [command.commandId, '0'.repeat(64), randomUUID()] },
+  ]), ['COA_IMPORT_IMMUTABLE', 'COA_IMPORT_IMMUTABLE', 'COA_IMPORT_IMMUTABLE', 'IDEMPOTENCY_CONFLICT']);
+  const income = await action(f, 'save-account', { id: randomUUID(), revision: null, code: 'TEST-INCOME', name: 'Test income', rootType: 'income', purpose: 'general', isGroup: false, parentId: null, active: true });
+  const draft = await save(f, [line(imported.id, 100, 0), line(income.id, 0, 100)]);
+  assert.equal((await f.send('service', { id: draft.id, revision: draft.revision, commandId: command.commandId }, 'post-journal')).error.code, 'IDEMPOTENCY_CONFLICT');
+  const financial = await post(f, draft);
+  assert.equal((await f.send('service', { ...command, commandId: financial.command.commandId }, 'import-accounts')).error.code, 'IDEMPOTENCY_CONFLICT');
+  assert.deepEqual(await successful(f, 'guarded-sql', [
+    { sql: 'INSERT INTO erp_ac_coa_imports(commandId,actorId,canonicalPayloadHash,templateId,templateVersion,resultJson,createdAt) SELECT ?,actorId,canonicalPayloadHash,templateId,templateVersion,resultJson,createdAt FROM erp_ac_coa_imports WHERE commandId=?', parameters: [financial.command.commandId, command.commandId] },
+  ]), ['IDEMPOTENCY_CONFLICT']);
+});
+
+test('workerd import receipt fault rolls back every created account and audit before safe exact retry', async (t) => {
+  const f = await fixture(t);
+  await successful(f, 'migrate');
+  await action(f, 'configure-book', { startDate: '2030-01-01' });
+  const command = { templateId: 'vn-tt133-2016', templateVersion: '1', selectedCodes: ['33311', '911'], commandId: randomUUID() };
+  const before = await databaseSnapshot(f);
+  assert.equal((await f.send('import-fault', command, 'import-accounts')).ok, false);
+  assert.deepEqual(await databaseSnapshot(f), before);
+  assert.deepEqual(await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_coa_imports' }), []);
+  const receipt = await action(f, 'import-accounts', command);
+  assert.deepEqual(receipt.created.map((entry) => entry.code), ['333', '3331', '33311', '911']);
+  assert.deepEqual(await action(f, 'import-accounts', command), receipt);
+  const group = await action(f, 'get', { entity: 'accounts', id: receipt.created.find((entry) => entry.code === '333').id });
+  await action(f, 'save-account', accountInput(group, { name: 'Operator-specific tax accounts' }));
+  const conflicting = { templateId: command.templateId, templateVersion: '1', selectedCodes: ['33312', '911'] };
+  const preview = await action(f, 'preview-account-import', conflicting);
+  assert.equal(preview.canImport, false);
+  assert.ok(preview.conflictCount > 0);
+  const conflictBefore = await databaseSnapshot(f);
+  const receiptsBefore = await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_coa_imports ORDER BY commandId' });
+  assert.equal((await f.send('service', { ...conflicting, commandId: randomUUID() }, 'import-accounts')).error.code, 'COA_IMPORT_CONFLICT');
+  assert.deepEqual(await databaseSnapshot(f), conflictBefore);
+  assert.deepEqual(await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_coa_imports ORDER BY commandId' }), receiptsBefore);
+});
+
+test('real schema1 posted history and allocations survive atomic deferred-FK upgrade and interrupted rebuild rollback', async (t) => {
+  const f = await fixture(t);
+  const legacy = await successful(f, 'legacy-fixture', legacyArtifact);
+  const before = await databaseSnapshot(f);
+  const migrations = await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_migrations ORDER BY version' });
+  assert.equal(before.allocations.length, 1);
+  assert.equal(before.commands.length, 2);
+  assert.equal((await successful(f, 'status')).version, 1);
+  assert.equal((await f.send('service', undefined, 'info')).error.code, 'SCHEMA_VERSION');
+  assert.deepEqual(await databaseSnapshot(f), before);
+  const interrupted = await successful(f, 'migration-fault', { version: 2 });
+  assert.equal(interrupted.failure, 'ACCOUNTING_STORAGE');
+  assert.equal(interrupted.status.version, 1);
+  assert.deepEqual(await databaseSnapshot(f), before);
+  assert.deepEqual(await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_migrations ORDER BY version' }), migrations);
+  assert.deepEqual(await successful(f, 'raw', { sql: 'PRAGMA defer_foreign_keys' }), [{ defer_foreign_keys: 0 }]);
+  const invalid = await successful(f, 'migration-fault', { version: 2, integrity: true });
+  assert.equal(invalid.failure, 'SCHEMA_VERSION');
+  assert.equal(invalid.status.version, 1);
+  assert.deepEqual(await databaseSnapshot(f), before);
+  assert.deepEqual(await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_migrations ORDER BY version' }), migrations);
+  assert.deepEqual(await successful(f, 'raw', { sql: 'PRAGMA defer_foreign_keys' }), [{ defer_foreign_keys: 0 }]);
+  assert.equal((await successful(f, 'migrate')).version, 2);
+  assert.deepEqual(await databaseSnapshot(f), before);
+  assert.deepEqual((await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_migrations WHERE version=1' })), migrations);
+  assert.deepEqual(await successful(f, 'raw', { sql: 'PRAGMA foreign_keys' }), [{ foreign_keys: 1 }]);
+  for (const table of ['accounts', 'lines', 'allocations', 'commands']) {
+    assert.deepEqual(await successful(f, 'raw', { sql: `PRAGMA foreign_key_check(erp_ac_${table})` }), []);
+  }
+  assert.deepEqual(await action(f, 'post-journal', legacy.command), legacy.receipt);
+  assert.deepEqual(await action(f, 'post-journal', legacy.settlementCommand), legacy.settlementReceipt);
+  assert.equal((await report(f, 'debt')).totals.remainingMinor, '600');
+  assert.deepEqual(await successful(f, 'guarded-sql', [
+    { sql: 'UPDATE erp_ac_lines SET debitMinor=999 WHERE journalId=? AND lineIndex=0', parameters: [legacy.command.id] },
+    { sql: 'DELETE FROM erp_ac_allocations' },
+    { sql: 'DELETE FROM erp_ac_commands' },
+    { sql: 'DELETE FROM erp_ac_accounts WHERE id=?', parameters: [legacy.accounts.bank.id] },
+  ]), ['JOURNAL_IMMUTABLE', 'JOURNAL_IMMUTABLE', 'COMMAND_IMMUTABLE', 'CONFLICT']);
+  const imported = await action(f, 'import-accounts', { templateId: 'vn-tt99-2025', templateVersion: '1', selectedCodes: ['215121', '911'], commandId: randomUUID() });
+  assert.deepEqual(imported.created.map((entry) => entry.code), ['215', '2151', '21512', '215121', '911']);
+  const result = imported.created.find((entry) => entry.code === '911');
+  const closing = await post(f, await save(f, [line(legacy.accounts.income.id, 100, 0), line(result.id, 0, 100)]));
+  assert.equal(closing.receipt.postedSequence, 3);
+  await f.restart();
+  assert.deepEqual(await action(f, 'post-journal', legacy.command), legacy.receipt);
+  assert.deepEqual(await action(f, 'post-journal', legacy.settlementCommand), legacy.settlementReceipt);
+  assert.deepEqual(await action(f, 'post-journal', closing.command), closing.receipt);
+});
+
+test('real foreign-key corruption is rejected by status, open and migration without repairing history', async (t) => {
+  const f = await fixture(t);
+  await successful(f, 'migrate');
+  // Deliberately bypass FK enforcement in this test-only raw harness. Production
+  // migration resets deferred counters only after exact-schema and full FK checks.
+  const journalId = randomUUID();
+  const accountId = randomUUID();
+  await successful(f, 'raw', { sql: `PRAGMA defer_foreign_keys=ON; INSERT INTO erp_ac_lines(journalId,lineIndex,accountId,role,debitMinor,creditMinor) VALUES('${journalId}',0,'${accountId}','general',1,0); PRAGMA defer_foreign_keys=OFF;` });
+  const before = await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_lines' });
+  assert.ok((await successful(f, 'raw', { sql: 'PRAGMA foreign_key_check(erp_ac_lines)' })).length > 0);
+  for (const operation of ['status', 'migrate', 'service']) {
+    assert.equal((await f.send(operation, undefined, 'info')).error.code, 'SCHEMA_VERSION');
+  }
+  assert.deepEqual(await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_lines' }), before);
 });
