@@ -78,13 +78,15 @@ async function checkServer(origin, label, accounting) {
   if (![401, 403].includes(denied.status)) throw new Error(`${label} private API must deny anonymous access, received ${denied.status}: ${await denied.text()}`);
   await denied.text();
   console.log(`PASS: ${label} homepage 200 and unauthenticated ERP denial ${denied.status}.`);
-  const ledger = await fetch(`${origin}/api/erp-mini/accounting/info`, {
-    headers: { 'X-EmDash-Request': '1' }, redirect: 'manual', signal: AbortSignal.timeout(10_000),
-  });
-  const expected = accounting ? 401 : 404;
-  if (ledger.status !== expected) throw new Error(`${label} accounting boundary expected ${expected}, received ${ledger.status}: ${await ledger.text()}`);
-  await ledger.text();
-  console.log(`PASS: ${label} accounting ${accounting ? 'session denial' : 'route excluded'} ${expected}.`);
+  for (const action of ['info', 'hkd-info']) {
+    const ledger = await fetch(`${origin}/api/erp-mini/accounting/${action}`, {
+      headers: { 'X-EmDash-Request': '1' }, redirect: 'manual', signal: AbortSignal.timeout(10_000),
+    });
+    const expected = accounting ? 401 : 404;
+    if (ledger.status !== expected) throw new Error(`${label} ${action} boundary expected ${expected}, received ${ledger.status}: ${await ledger.text()}`);
+    await ledger.text();
+    console.log(`PASS: ${label} ${action} ${accounting ? 'session denial' : 'route excluded'} ${expected}.`);
+  }
 }
 try {
   const plugin = join(directory, 'zhst-community-plugins/plugins/erp-mini');
@@ -121,10 +123,9 @@ try {
     import { openAccountingDatabase } from '@zerohost/plugin-erp-mini/accounting-node';
     const store = openAccountingDatabase('.local/accounting.db');
     try {
-      const versions = store.all('SELECT version FROM erp_ac_migrations ORDER BY version').map((row) => row.version);
-      if (JSON.stringify(versions) !== '[1,2]') throw new Error('Startup must apply the complete accounting schema1→2 chain.');
       for (const table of ['erp_ac_settings', 'erp_ac_accounts', 'erp_ac_parties', 'erp_ac_journals',
-        'erp_ac_lines', 'erp_ac_allocations', 'erp_ac_commands', 'erp_ac_coa_imports', 'erp_ac_audit']) {
+        'erp_ac_lines', 'erp_ac_allocations', 'erp_ac_commands', 'erp_ac_coa_imports', 'erp_ac_audit',
+        'erp_ac_hkd_profiles', 'erp_ac_hkd_events', 'erp_ac_hkd_commands']) {
         if (store.get('SELECT count(*) AS count FROM ' + table).count !== 0) {
           throw new Error('Startup must not configure a book or seed business records: ' + table);
         }

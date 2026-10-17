@@ -22,8 +22,8 @@ function withFault(store, receiptTable = 'erp_ac_commands') {
 function legacyStore(storage) {
   return {
     get(sql, ...bindings) {
-      // Schema1 predates the reciprocal COA command namespace.
-      if (sql === 'SELECT 1 FROM erp_ac_coa_imports WHERE commandId=?') return undefined;
+      // Historical schema1 predates the newer command namespaces.
+      if (sql === 'SELECT 1 FROM erp_ac_coa_imports WHERE commandId=?' || sql === 'SELECT 1 FROM erp_ac_hkd_commands WHERE commandId=?') return undefined;
       return storage.sql.exec(sql, ...bindings).toArray()[0];
     },
     all(sql, ...bindings) { return storage.sql.exec(sql, ...bindings).toArray(); },
@@ -57,7 +57,20 @@ async function legacyFixture(storage, input, actor) {
   const settlement = await service.saveSettlement({ id: crypto.randomUUID(), revision: null, kind: 'receipt', postingDate: '2030-02-02', memo: 'Legacy allocation', reference: 'LEGACY', moneyAccountId: accounts.bank.id, partyId: customer.id, allocations: [{ sourceJournalId: draft.id, sourceLineIndex: 0, amountMinor: 400 }] });
   const settlementCommand = { id: settlement.id, revision: settlement.revision, commandId: crypto.randomUUID() };
   const settlementReceipt = await service.postJournal(settlementCommand);
-  return { accounts, group, customer, command, receipt, settlementCommand, settlementReceipt };
+  let importReceipt;
+  if (input.second) {
+    // Construct the exact historical schema2 prefix, including genuine COA history.
+    storage.transactionSync(() => {
+      storage.sql.exec('PRAGMA defer_foreign_keys=ON').toArray();
+      try {
+        storage.sql.exec(input.second.sql).toArray();
+        storage.sql.exec('INSERT INTO erp_ac_migrations(version,checksum,appliedAt) VALUES(2,?,?)', input.second.checksum, now().toISOString()).toArray();
+        if (storage.sql.exec('PRAGMA foreign_key_check(erp_ac_lines)').toArray().length) throw new Error('Invalid historical fixture');
+      } finally { storage.sql.exec('PRAGMA defer_foreign_keys=OFF').toArray(); }
+    });
+    importReceipt = await service.importAccounts({ commandId: crypto.randomUUID(), templateId: 'vn-tt133-2016', templateVersion: '1', selectedCodes: ['911', '33311'] });
+  }
+  return { accounts, group, customer, command, receipt, settlementCommand, settlementReceipt, importReceipt };
 }
 export class TestAccounting extends DurableObject {
   async fetch(request) {
@@ -75,7 +88,7 @@ export class TestAccounting extends DurableObject {
           transactionSync: storage.transactionSync.bind(storage),
           sql: { exec(sql, ...bindings) {
             const result = storage.sql.exec(sql, ...bindings);
-            if (sql.includes(input?.version === 2 ? 'CREATE TABLE erp_ac_coa_imports' : 'CREATE TABLE erp_ac_migrations')) {
+            if (sql.includes(input?.version === 3 ? 'CREATE TABLE erp_ac_hkd_commands' : input?.version === 2 ? 'CREATE TABLE erp_ac_coa_imports' : 'CREATE TABLE erp_ac_migrations')) {
               result.toArray();
               if (!input?.integrity) throw new Error('Synthetic DDL interruption');
               // Keep schema exact but inject a missing-parent row while checks

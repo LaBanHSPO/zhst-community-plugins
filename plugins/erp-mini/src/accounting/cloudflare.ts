@@ -13,7 +13,7 @@ export interface DurableAccountingStorage {
   transactionSync<T>(callback: () => T): T;
 }
 export interface DurableAccountingSchemaStatus {
-  version: 1 | 2 | null;
+  version: 1 | 2 | 3 | null;
   checksum: string | null;
   bookConfigured: boolean;
 }
@@ -35,6 +35,7 @@ const assertionCodes: Record<string, true> = {
   UNBALANCED: true, INVALID_SNAPSHOT: true, OVER_ALLOCATION: true, ALLOCATION_DATE_CONFLICT: true,
   INVALID_REVERSAL: true, ACTIVE_SETTLEMENT: true, INVALID_SETTLEMENT: true,
   COA_IMPORT_IMMUTABLE: true, IDEMPOTENCY_CONFLICT: true,
+  HKD_PROFILE_IMMUTABLE: true, HKD_ENTRY_IMMUTABLE: true, HKD_COMMAND_IMMUTABLE: true,
 };
 function safeError(error: unknown): ErpError {
   if (error instanceof ErpError) return error;

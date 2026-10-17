@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
 // Build-time only: retain the shipped migration bytes and SQLite's canonical schema SQL.
-const names = ['0001_accounting.sql', '0002_coa_import.sql'];
+const names = ['0001_accounting.sql', '0002_coa_import.sql', '0003_hkd_books.sql'];
 const reference = new DatabaseSync(':memory:', { enableForeignKeyConstraints: true });
 try {
   // Match the Node migration owner's canonical schema after safe table rebuilds.

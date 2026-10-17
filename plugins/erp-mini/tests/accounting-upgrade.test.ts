@@ -18,8 +18,9 @@ const schemaQuery = "SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name
 function code(expected: string) {
   return (error: unknown) => error instanceof ErpError && error.code === expected;
 }
-function migration(version: 1 | 2) {
-  const sql = readFileSync(new URL(`../migrations/000${version}_${version === 1 ? 'accounting' : 'coa_import'}.sql`, import.meta.url), 'utf8');
+function migration(version: 1 | 2 | 3) {
+  const names = { 1: '0001_accounting.sql', 2: '0002_coa_import.sql', 3: '0003_hkd_books.sql' };
+  const sql = readFileSync(new URL(`../migrations/${names[version]}`, import.meta.url), 'utf8');
   return { sql, checksum: createHash('sha256').update(sql).digest('hex') };
 }
 function location(t: TestContext) {
@@ -27,13 +28,25 @@ function location(t: TestContext) {
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return join(directory, 'accounting.db');
 }
-// Only fixture construction uses this adapter: runtime must refuse schema1.
+function schema2(filename: string) {
+  const db = new DatabaseSync(filename);
+  const second = migration(2);
+  try {
+    db.exec('PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE;');
+    db.exec(second.sql);
+    db.prepare('INSERT INTO erp_ac_migrations(version,checksum,appliedAt) VALUES(2,?,?)').run(second.checksum, time);
+    assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+    db.exec('COMMIT; PRAGMA foreign_keys=ON;');
+  } finally { db.close(); }
+}
+// Only fixture construction uses this adapter: runtime must refuse older schemas.
 // All domain writes still execute the real service and shipped SQL constraints.
 function fixtureStore(db: DatabaseSync): AccountingStore {
   return {
     get<T>(sql: string, ...parameters: SqlParameter[]) {
-      // Historical schema1 has no import namespace; emulate only its absence while
-      // constructing/replaying v1 fixtures, never for the upgraded runtime store.
+      // Historical fixture construction predates both newer command namespaces.
+      if (sql === 'SELECT 1 FROM erp_ac_hkd_commands WHERE commandId=?' &&
+          !db.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='erp_ac_hkd_commands'").get()) return undefined;
       if (sql === 'SELECT 1 FROM erp_ac_coa_imports WHERE commandId=?' &&
           !db.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='erp_ac_coa_imports'").get()) return undefined;
       return db.prepare(sql).get(...parameters) as T | undefined;
@@ -66,8 +79,9 @@ function snapshot(db: DatabaseSync) {
   };
 }
 function chain(store: AccountingStore) {
-  assert.deepEqual(store.all('SELECT version,checksum FROM erp_ac_migrations ORDER BY version').map((row) => ({ ...row })),
-    [1, 2].map((version) => ({ version, checksum: migration(version as 1 | 2).checksum })));
+  for (const row of store.all<{ version: 1 | 2 | 3; checksum: string }>('SELECT version,checksum FROM erp_ac_migrations ORDER BY version')) {
+    assert.equal(row.checksum, migration(row.version).checksum);
+  }
   assert.deepEqual(store.all('PRAGMA foreign_key_check'), []);
   assert.equal(store.get<{ foreign_keys: number }>('PRAGMA foreign_keys')?.foreign_keys, 1);
 }
@@ -115,13 +129,13 @@ function runtime(t: TestContext, filename: string) {
   return { store, service: new AccountingService(store, actor, now) };
 }
 
-test('fresh schema1→2 has a checksummed exact chain, no business seed and a write-free rerun', async (t) => {
+test('fresh shipped schema has a checksummed exact chain, no business seed and a write-free rerun', async (t) => {
   const filename = location(t);
   migrateAccountingDatabase(filename);
   const { store, service } = runtime(t, filename);
   chain(store);
   assert.equal((await service.info()).book, null);
-  for (const table of [...businessTables, 'erp_ac_coa_imports']) assert.equal(store.get<{ count: number }>(`SELECT count(*) AS count FROM ${table}`)?.count, 0, table);
+  for (const table of [...businessTables, 'erp_ac_coa_imports', 'erp_ac_hkd_profiles', 'erp_ac_hkd_events', 'erp_ac_hkd_commands']) assert.equal(store.get<{ count: number }>(`SELECT count(*) AS count FROM ${table}`)?.count, 0, table);
   const before = store.all('SELECT * FROM erp_ac_migrations ORDER BY version');
   migrateAccountingDatabase(filename);
   assert.deepEqual(store.all('SELECT * FROM erp_ac_migrations ORDER BY version'), before);
@@ -243,7 +257,7 @@ const corruptions = [
   { name: 'missing first prefix row', version: 2, sql: 'DELETE FROM erp_ac_migrations WHERE version=1' },
   { name: 'schema2 claiming schema1', version: 2, sql: 'DELETE FROM erp_ac_migrations WHERE version=2' },
   { name: 'empty chain with nonempty schema', version: 1, sql: 'DELETE FROM erp_ac_migrations' },
-  { name: 'future prefix', version: 2, sql: "INSERT INTO erp_ac_migrations VALUES(3,printf('%064d',0),'2030-01-01')" },
+  { name: 'future prefix', version: 2, sql: "INSERT INTO erp_ac_migrations VALUES(99,printf('%064d',0),'2030-01-01')" },
   { name: 'unknown table', version: 1, sql: 'CREATE TABLE foreign_data(value TEXT) STRICT' },
   { name: 'unknown index', version: 2, sql: 'CREATE INDEX foreign_index ON erp_ac_accounts(code)' },
   { name: 'missing trigger', version: 1, sql: 'DROP TRIGGER erp_ac_settings_update' },
@@ -252,7 +266,7 @@ const corruptions = [
 for (const corruption of corruptions) {
   test(`${corruption.name} fails closed without rewriting schema, history or migration rows`, async (t) => {
     const legacy = await v1(t);
-    if (corruption.version === 2) migrateAccountingDatabase(legacy.filename);
+    if (corruption.version === 2) schema2(legacy.filename);
     const raw = new DatabaseSync(legacy.filename);
     try {
       raw.exec(corruption.sql);
@@ -267,7 +281,7 @@ for (const corruption of corruptions) {
 test('schema1 cannot claim a contiguous schema2 chain and pre-existing FK violations cannot be repaired by upgrade', async (t) => {
   for (const corruption of ['false-prefix', 'foreign-key-v1', 'foreign-key-v2'] as const) {
     const legacy = await v1(t);
-    if (corruption === 'foreign-key-v2') migrateAccountingDatabase(legacy.filename);
+    if (corruption === 'foreign-key-v2') schema2(legacy.filename);
     const raw = new DatabaseSync(legacy.filename);
     try {
       if (corruption === 'false-prefix') raw.prepare('INSERT INTO erp_ac_migrations VALUES(2,?,?)').run(migration(2).checksum, time);
@@ -324,4 +338,49 @@ test('raw import receipts are immutable and command namespace fences protect bot
   assert.deepEqual(await service.postJournal(legacy.command), legacy.result);
   assert.deepEqual(await service.postJournal(legacy.settlementCommand), legacy.settlementResult);
   chain(store);
+});
+
+test('schema2→3 interruption preserves COA receipts and posted history before independent household setup', async (t) => {
+  const legacy = await v1(t);
+  schema2(legacy.filename);
+  const prior = new DatabaseSync(legacy.filename);
+  const historical = new AccountingService(fixtureStore(prior), actor, now);
+  const imported = await historical.importAccounts({ commandId: legacy.uuid(), templateId: 'vn-tt133-2016', templateVersion: '1', selectedCodes: ['33311', '911'] });
+  const before = snapshot(prior);
+  const receipts = prior.prepare('SELECT * FROM erp_ac_coa_imports ORDER BY commandId').all();
+  prior.close();
+  assert.throws(() => openAccountingDatabase(legacy.filename), code('SCHEMA_VERSION'));
+  const warm = location(t); migrateAccountingDatabase(warm);
+  const original = DatabaseSync.prototype.exec;
+  let injected = false;
+  DatabaseSync.prototype.exec = function (sql: string) {
+    original.call(this, sql);
+    const file = this.prepare('PRAGMA database_list').all().find((row) => row.name === 'main')?.file;
+    if (!injected && file === realpathSync(legacy.filename) && this.isTransaction && sql.includes('CREATE TABLE erp_ac_hkd_profiles')) {
+      injected = true;
+      throw new Error('Synthetic household schema interruption');
+    }
+  };
+  try { assert.throws(() => migrateAccountingDatabase(legacy.filename), code('ACCOUNTING_STORAGE')); }
+  finally { DatabaseSync.prototype.exec = original; }
+  assert.equal(injected, true);
+  const rolledBack = new DatabaseSync(legacy.filename);
+  try {
+    assert.deepEqual(snapshot(rolledBack), before);
+    assert.deepEqual(rolledBack.prepare('SELECT * FROM erp_ac_coa_imports ORDER BY commandId').all(), receipts);
+  } finally { rolledBack.close(); }
+  migrateAccountingDatabase(legacy.filename);
+  const { store, service } = runtime(t, legacy.filename);
+  assert.deepEqual(await service.postJournal(legacy.command), legacy.result);
+  assert.deepEqual(await service.postJournal(legacy.settlementCommand), legacy.settlementResult);
+  const { commandId, templateId, templateVersion, selectedCodes } = imported;
+  assert.deepEqual(await service.importAccounts({ commandId, templateId, templateVersion, selectedCodes }), imported);
+  const configured = await service.hkd.configure({ commandId: legacy.uuid(), year: 2030, startDate: '2030-01-01', name: 'Hộ tổng hợp',
+    address: 'Địa chỉ tổng hợp', taxCode: '0123456789', representative: 'Người tổng hợp', location: 'Cửa hàng',
+    taxMethod: 'exempt', periodType: 'month', incomeTaxRateBps: null, otherTaxes: false });
+  await service.hkd.postEntry({ commandId: legacy.uuid(), year: 2030, installationId: configured.profile!.installationId, revision: configured.profile!.revision, entry: { kind: 'revenue', date: '2030-01-02',
+    documentDate: '2030-01-02', documentNumber: 'HKD-001', description: 'Doanh thu hộ', amountMinor: 25,
+    businessLine: '', vatRateBps: 0, pitRateBps: 0, vatTaxableMinor: 0, pitTaxableMinor: 0, incomeRevenueMinor: 0 } });
+  for (const table of businessTables) assert.deepEqual(store.all(`SELECT * FROM ${table} ORDER BY rowid`), before.business[table], table);
+  assert.deepEqual(store.all('SELECT * FROM erp_ac_coa_imports ORDER BY commandId'), receipts);
 });

@@ -21,7 +21,7 @@ function database(filename: string): DatabaseSync {
 function migrations(): Migration[] {
   if (shipped) return shipped;
   // Source and built modules both sit two levels below the package root.
-  const artifacts = ['0001_accounting.sql', '0002_coa_import.sql'].map((name, index) => {
+  const artifacts = ['0001_accounting.sql', '0002_coa_import.sql', '0003_hkd_books.sql'].map((name, index) => {
     const location = new URL(`../../migrations/${name}`, import.meta.url);
     if (!existsSync(location)) throw new ErpError('SCHEMA_VERSION', 'An accounting migration artifact is missing. Install a complete approved package.');
     const sql = readFileSync(location, 'utf8');
@@ -65,6 +65,7 @@ const assertionCodes: Record<string, true> = {
   UNBALANCED: true, INVALID_SNAPSHOT: true, OVER_ALLOCATION: true, ALLOCATION_DATE_CONFLICT: true,
   INVALID_REVERSAL: true, ACTIVE_SETTLEMENT: true, INVALID_SETTLEMENT: true,
   COA_IMPORT_IMMUTABLE: true, IDEMPOTENCY_CONFLICT: true,
+  HKD_PROFILE_IMMUTABLE: true, HKD_ENTRY_IMMUTABLE: true, HKD_COMMAND_IMMUTABLE: true,
 };
 function safeError(error: unknown): Error {
   if (error instanceof ErpError) return error;
