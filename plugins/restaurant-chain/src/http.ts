@@ -24,6 +24,8 @@ const commands: Record<string, true | undefined> = {
 	"close-shift": true,
 	"freeze-bill": true,
 	"settle-bill": true,
+	"apply-discount": true,
+	"refund-bill": true,
 	"call-service": true,
 	"attend-request": true,
 	"join-table": true,

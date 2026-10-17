@@ -131,6 +131,23 @@ export const schemas = {
 		method: z.enum(["cash", "bank_transfer"]),
 		reference: z.string().trim().max(100).default(""),
 	}),
+	"apply-discount": z
+		.strictObject({
+			...revision,
+			amount: money.optional(),
+			percent: z.number().int().min(1).max(100).optional(),
+			reason,
+		})
+		.refine(
+			(value) => (value.amount === undefined) !== (value.percent === undefined),
+			"Provide either an amount or a percent",
+		),
+	"refund-bill": z.strictObject({
+		...revision,
+		amount: z.number().int().min(1).max(MAX_VND),
+		method: z.enum(["cash", "bank_transfer"]),
+		reason,
+	}),
 	"call-service": z.strictObject({
 		commandId,
 		token: id,

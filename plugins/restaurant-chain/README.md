@@ -87,6 +87,16 @@ table dirty, and a new visit cannot open on that table until staff mark it clean
 dọn bàn**). The floor plan shows a distinct "needs cleaning" state, so the sequence is
 settle → close → clean → seat the next party.
 
+## Discount and refund a bill
+
+A manager can apply a discount to an open bill by amount or percent with a reason
+(**Giảm giá**); the payable amount becomes the bill total minus the discount, and cash
+settlement and the shift drawer use that payable amount. A settled bill is never edited
+in place: a manager refunds it (**Hoàn tiền**) up to the amount actually received,
+recording a method and reason. Cash refunds require an open shift and reduce that shift's
+expected drawer. Every discount and refund is written to the audit log and listed in the
+refund history. A dish that is already in preparation can only be voided by a manager.
+
 ## Confirm payment
 
 Generating or displaying a QR does not mark a bill paid. The host authenticates the SePay webhook, saves the inbox receipt and processing job in one D1 batch, then acknowledges it. Queue processing verifies incoming direction, context/environment, receiving bank/account/sub-account, reference, amount, and attempt status before allocating money.

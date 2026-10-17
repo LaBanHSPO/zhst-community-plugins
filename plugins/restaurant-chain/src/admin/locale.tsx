@@ -340,6 +340,22 @@ export const messages = {
 	needsCleaning: ["Cần dọn bàn", "تحتاج إلى تنظيف"],
 	cleanTable: ["Đã dọn bàn", "تم تنظيف الطاولة"],
 	dirty: ["Cần dọn bàn", "تحتاج إلى تنظيف"],
+	discount: ["Giảm giá", "الخصم"],
+	discountAmount: ["Số tiền giảm", "مبلغ الخصم"],
+	discountPercent: ["Giảm theo %", "الخصم بنسبة %"],
+	applyDiscount: ["Áp dụng giảm giá", "تطبيق الخصم"],
+	byAmount: ["Theo số tiền", "بالمبلغ"],
+	byPercent: ["Theo phần trăm", "بالنسبة"],
+	payable: ["Thành tiền", "المبلغ المستحق"],
+	refund: ["Hoàn tiền", "الاسترداد"],
+	refundAmount: ["Số tiền hoàn", "مبلغ الاسترداد"],
+	refunded: ["Đã hoàn", "المسترد"],
+	refundHistory: ["Lịch sử hoàn tiền", "سجل الاسترداد"],
+	noRefunds: ["Chưa có hoàn tiền.", "لا يوجد استرداد بعد."],
+	managerOnly: [
+		"Chỉ quản lý được giảm giá hoặc hoàn tiền.",
+		"الخصم أو الاسترداد للمدير فقط.",
+	],
 } as const;
 export type TextKey = keyof typeof messages;
 const LocaleContext = createContext<{ locale: string; setLocale: (locale: string) => void }>({

@@ -277,9 +277,149 @@ function SettleForm({ bill, branchId, onDone }: { bill: Bill; branchId: string; 
 	);
 }
 
+function DiscountForm({
+	bill,
+	branchId,
+	onDone,
+}: {
+	bill: Bill;
+	branchId: string;
+	onDone: () => void;
+}) {
+	const { t } = useText();
+	const [mode, setMode] = useState("amount");
+	const [value, setValue] = useState("");
+	const [reason, setReason] = useState("");
+	const mutation = useCommand(onDone);
+	const numeric = value === "" ? undefined : Number(value);
+	return (
+		<form
+			className="rc-settle"
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (numeric === undefined) return;
+				void mutation.run("apply-discount", {
+					branchId,
+					id: bill.id,
+					expectedVersion: bill.version,
+					...(mode === "amount" ? { amount: numeric } : { percent: numeric }),
+					reason,
+				});
+			}}
+		>
+			<Choice
+				label={t("discount")}
+				value={mode}
+				options={[
+					{ value: "amount", label: t("byAmount") },
+					{ value: "percent", label: t("byPercent") },
+				]}
+				onChange={setMode}
+			/>
+			<Input
+				label={mode === "amount" ? t("discountAmount") : t("discountPercent")}
+				type="number"
+				min={1}
+				max={mode === "percent" ? 100 : undefined}
+				required
+				value={value}
+				onChange={(event) => setValue(event.target.value)}
+			/>
+			<Input
+				label={t("reason")}
+				value={reason}
+				required
+				maxLength={1000}
+				onChange={(event) => setReason(event.target.value)}
+			/>
+			<Failure error={mutation.error} />
+			<Button
+				type="submit"
+				variant="secondary"
+				disabled={mutation.pending || numeric === undefined || !reason.trim()}
+			>
+				{t(mutation.pending ? "saving" : "applyDiscount")}
+			</Button>
+		</form>
+	);
+}
+
+function RefundForm({
+	bill,
+	branchId,
+	onDone,
+}: {
+	bill: Bill;
+	branchId: string;
+	onDone: () => void;
+}) {
+	const { t, locale } = useText();
+	const [method, setMethod] = useState("cash");
+	const [value, setValue] = useState("");
+	const [reason, setReason] = useState("");
+	const mutation = useCommand(onDone);
+	const numeric = value === "" ? undefined : Number(value);
+	const remaining = (bill.amount ?? 0) - bill.refunded;
+	return (
+		<form
+			className="rc-settle"
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (numeric === undefined) return;
+				void mutation.run("refund-bill", {
+					branchId,
+					id: bill.id,
+					expectedVersion: bill.version,
+					amount: numeric,
+					method,
+					reason,
+				});
+			}}
+		>
+			<p className="rc-muted">
+				{t("refunded")}: {money(bill.refunded, locale)} / {money(bill.amount ?? 0, locale)}
+			</p>
+			<Choice
+				label={t("method")}
+				value={method}
+				options={[
+					{ value: "cash", label: t("cash") },
+					{ value: "bank_transfer", label: t("bankTransfer") },
+				]}
+				onChange={setMethod}
+			/>
+			<Input
+				label={t("refundAmount")}
+				type="number"
+				min={1}
+				max={remaining > 0 ? remaining : undefined}
+				required
+				value={value}
+				onChange={(event) => setValue(event.target.value)}
+			/>
+			<Input
+				label={t("reason")}
+				value={reason}
+				required
+				maxLength={1000}
+				onChange={(event) => setReason(event.target.value)}
+			/>
+			<Failure error={mutation.error} />
+			<Button
+				type="submit"
+				variant="secondary"
+				disabled={mutation.pending || numeric === undefined || !reason.trim()}
+			>
+				{t(mutation.pending ? "saving" : "refund")}
+			</Button>
+		</form>
+	);
+}
+
 export function Bills({ data, onDone }: { data: Workspace; onDone: () => void }) {
 	const { t, locale } = useText();
 	const canOperate = ["manager", "administrator", "cashier"].includes(data.role);
+	const canManage = ["manager", "administrator"].includes(data.role);
 	const open = data.bills.filter((bill) => bill.status === "open");
 	const settled = [...data.bills]
 		.filter((bill) => bill.status === "settled")
@@ -312,6 +452,25 @@ export function Bills({ data, onDone }: { data: Workspace; onDone: () => void })
 							<strong>{t("total")}</strong>
 							<strong>{money(bill.total, locale)}</strong>
 						</div>
+						{bill.discount > 0 && (
+							<dl className="rc-details">
+								<div>
+									<dt>{t("discount")}</dt>
+									<dd>-{money(bill.discount, locale)}</dd>
+								</div>
+								<div>
+									<dt>{t("payable")}</dt>
+									<dd>{money(bill.total - bill.discount, locale)}</dd>
+								</div>
+								{bill.discountReason && (
+									<div>
+										<dt>{t("reason")}</dt>
+										<dd>{bill.discountReason}</dd>
+									</div>
+								)}
+							</dl>
+						)}
+						{canManage && <DiscountForm bill={bill} branchId={data.branch.id} onDone={onDone} />}
 						{canOperate ? (
 							<SettleForm bill={bill} branchId={data.branch.id} onDone={onDone} />
 						) : (
@@ -321,25 +480,65 @@ export function Bills({ data, onDone }: { data: Workspace; onDone: () => void })
 				))}
 			</Section>
 			<Section title={t("settledBills")}>
-				{settled.length === 0 ? (
-					<p className="rc-empty">{t("noBills")}</p>
-				) : (
-					<div className="rc-panel rc-list">
-						{settled.map((bill) => (
-							<article className="rc-list-row" key={bill.id}>
+				{settled.length === 0 && <p className="rc-empty">{t("noBills")}</p>}
+				{settled.map((bill) => (
+					<article className="rc-panel rc-bill" key={bill.id}>
+						<header>
+							<h3>{tableName(bill.visitId)}</h3>
+							<Status value="settled" label="paid" />
+						</header>
+						<dl className="rc-details">
+							<div>
+								<dt>{t("method")}</dt>
+								<dd>
+									{bill.method === "cash" ? t("cash") : t("bankTransfer")}
+									{bill.reference ? ` · ${bill.reference}` : ""}
+								</dd>
+							</div>
+							<div>
+								<dt>{t("total")}</dt>
+								<dd>{money(bill.total, locale)}</dd>
+							</div>
+							{bill.discount > 0 && (
 								<div>
-									<strong>{tableName(bill.visitId)}</strong>
+									<dt>{t("discount")}</dt>
+									<dd>-{money(bill.discount, locale)}</dd>
+								</div>
+							)}
+							<div>
+								<dt>{t("payable")}</dt>
+								<dd>{money(bill.amount ?? bill.total, locale)}</dd>
+							</div>
+						</dl>
+						{canManage ? (
+							<RefundForm bill={bill} branchId={data.branch.id} onDone={onDone} />
+						) : (
+							<p className="rc-muted">{t("managerOnly")}</p>
+						)}
+					</article>
+				))}
+			</Section>
+			{data.refunds.length > 0 && (
+				<Section title={t("refundHistory")}>
+					<div className="rc-panel rc-list">
+						{data.refunds.map((refund) => (
+							<article className="rc-list-row" key={refund.id}>
+								<div>
+									<strong>
+										{tableName(
+											data.bills.find((bill) => bill.id === refund.billId)?.visitId ?? "",
+										)}
+									</strong>
 									<small className="rc-muted">
-										{bill.method === "cash" ? t("cash") : t("bankTransfer")}
-										{bill.reference ? ` · ${bill.reference}` : ""}
+										{refund.method === "cash" ? t("cash") : t("bankTransfer")} · {refund.reason}
 									</small>
 								</div>
-								<span>{money(bill.total, locale)}</span>
+								<span>{money(refund.amount, locale)}</span>
 							</article>
 						))}
 					</div>
-				)}
-			</Section>
+				</Section>
+			)}
 		</>
 	);
 }

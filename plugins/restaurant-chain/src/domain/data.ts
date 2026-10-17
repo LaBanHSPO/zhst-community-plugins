@@ -8,6 +8,7 @@ import type {
 	Order,
 	OrderLine,
 	Payment,
+	Refund,
 	ServiceRequest,
 	Shift,
 	Visit,
@@ -35,7 +36,9 @@ export const columns = {
 	shift:
 		"id,status,opened_by AS openedBy,opened_at AS openedAt,closed_by AS closedBy,closed_at AS closedAt,opening_float AS openingFloat,expected_cash AS expectedCash,counted_cash AS countedCash,variance,note,version",
 	bill:
-		"id,branch_id AS branchId,visit_id AS visitId,shift_id AS shiftId,status,method,reference,total,created_by AS createdBy,created_at AS createdAt,settled_by AS settledBy,settled_at AS settledAt,version",
+		"id,branch_id AS branchId,visit_id AS visitId,shift_id AS shiftId,status,method,reference,total,discount,discount_reason AS discountReason,amount,refunded,created_by AS createdBy,created_at AS createdAt,settled_by AS settledBy,settled_at AS settledAt,version",
+	refund:
+		"id,branch_id AS branchId,bill_id AS billId,shift_id AS shiftId,amount,method,reason,created_by AS createdBy,created_at AS createdAt,version",
 	billLine:
 		"id,bill_id AS billId,order_id AS orderId,name,quantity,unit_price AS unitPrice,tax_rate AS taxRate,total",
 	serviceRequest:
@@ -57,6 +60,7 @@ export type ShiftRow = Shift;
 export type BillRow = Omit<Bill, "lines">;
 export type BillLineRow = BillLine;
 export type ServiceRequestRow = ServiceRequest;
+export type RefundRow = Refund;
 export type InvoiceRow = Invoice & {
 	credentialContext: string;
 	environment: string;
