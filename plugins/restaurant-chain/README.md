@@ -31,7 +31,7 @@ Read SePay's [QR configuration](https://developer.sepay.vn/vi/tien-ich-khac/tao-
 
 ## Operate a table
 
-Staff opens a visit before guests join. Guests scan the table QR or tap NFC, choose dishes and modifiers, and submit a request. Pending requests do not contribute to the bill. Staff confirms or rejects each request; only confirmed dishes enter the kitchen.
+Staff opens a visit before guests join. Guests scan the table QR or tap NFC, choose dishes and modifiers, and submit a request. Pending requests do not contribute to the bill. Staff confirms or rejects each request; only confirmed dishes enter the kitchen. A guest line carries the unit price it saw; if the menu price changed meanwhile, the submission is refused with `PRICE_CHANGED` until the guest re-confirms the new price, so a party is never charged a price it did not see.
 
 Kitchen progresses each line through **queued → preparing → ready**. Floor staff marks delivery as **served**. The cashier can freeze the bill and generate a payment QR only after pending requests and unserved dishes are resolved. Prices, tax, modifiers, and receiving details are snapshotted; editing the menu or branch configuration does not rewrite earlier transactions.
 

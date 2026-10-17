@@ -1276,4 +1276,36 @@ describe("D1 restaurant domain", () => {
 			{ code: "NOT_FOUND" },
 		);
 	});
+
+	it("refuses a stale expected price and accepts the confirmed one", async () => {
+		const status = (await guest.execute("guest-status", { token: session.token })) as GuestStatus;
+		await command(admin, "save-menu-item", {
+			branchId,
+			id: menuId,
+			expectedVersion: 1,
+			...menuFields,
+			price: 90000,
+		});
+		await assert.rejects(
+			command(guest, "submit-order", {
+				token: session.token,
+				expectedVersion: status.visit.version,
+				note: "",
+				lines: [
+					{ menuItemId: menuId, quantity: 1, modifierIds: ["extra"], expectedUnitPrice: 60000 },
+				],
+			}),
+			{ code: "PRICE_CHANGED" },
+		);
+		const order = await command(guest, "submit-order", {
+			token: session.token,
+			expectedVersion: status.visit.version,
+			note: "",
+			lines: [
+				{ menuItemId: menuId, quantity: 1, modifierIds: ["extra"], expectedUnitPrice: 100000 },
+			],
+		});
+		const stored = (await workspace()).orders.find((entry) => entry.id === order.id)!;
+		assert.equal(stored.lines[0]!.unitPrice, 100000);
+	});
 });

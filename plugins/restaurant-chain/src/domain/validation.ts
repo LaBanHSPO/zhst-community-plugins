@@ -154,6 +154,7 @@ export const schemas = {
 						.array(id)
 						.max(20)
 						.refine((items) => new Set(items).size === items.length),
+					expectedUnitPrice: money.optional(),
 				}),
 			)
 			.min(1)

@@ -333,6 +333,10 @@ export const messages = {
 		"انقطع الاتصال. ستُعاد المحاولة عند توفر الشبكة.",
 	],
 	backOnline: ["Đã kết nối lại.", "تم الاتصال مجدداً."],
+	priceChanged: [
+		"Giá món đã thay đổi. Vui lòng xem giá mới và xác nhận lại.",
+		"تغيّر سعر الطبق. يرجى مراجعة السعر الجديد والتأكيد.",
+	],
 } as const;
 export type TextKey = keyof typeof messages;
 const LocaleContext = createContext<{ locale: string; setLocale: (locale: string) => void }>({

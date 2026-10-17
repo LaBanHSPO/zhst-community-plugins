@@ -1148,6 +1148,15 @@ export class RestaurantService {
 						BigInt(item.price) +
 							selected.reduce((sum, modifier) => sum + BigInt(modifier.price), 0n),
 					);
+					if (
+						requested.expectedUnitPrice !== undefined &&
+						requested.expectedUnitPrice !== unitPrice
+					)
+						throw new DomainError(
+							"PRICE_CHANGED",
+							"The menu price changed. Review the new price and submit again.",
+							409,
+						);
 					const lineTotal = exactVnd(BigInt(unitPrice) * BigInt(requested.quantity));
 					total += BigInt(lineTotal);
 					statements.push(

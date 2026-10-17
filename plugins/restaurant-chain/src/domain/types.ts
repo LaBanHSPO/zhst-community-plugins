@@ -322,7 +322,12 @@ export interface ActionInputs {
 		token: string;
 		expectedVersion: number;
 		note: string;
-		lines: { menuItemId: string; quantity: number; modifierIds: string[] }[];
+		lines: {
+			menuItemId: string;
+			quantity: number;
+			modifierIds: string[];
+			expectedUnitPrice?: number;
+		}[];
 	};
 	"confirm-order": RevisionCommand;
 	"reject-order": RevisionCommand & { reason: string };
