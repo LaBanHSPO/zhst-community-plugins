@@ -181,6 +181,19 @@ function TableDetail({
 		order.lines.map((line) => ({ order, line })),
 	);
 	const total = orders.reduce((sum, order) => sum + order.total, 0);
+	const visit = data.visits.find((candidate) => candidate.id === visitId);
+	const openBill = data.bills.find((bill) => bill.visitId === visitId && bill.status === "open");
+	const canBill = ["manager", "administrator", "cashier"].includes(data.role);
+	const confirmedUnbilled = orders.some(
+		(order) => order.status === "confirmed" && !order.billId,
+	);
+	const canFreeze =
+		canBill &&
+		!!visit &&
+		!openBill &&
+		confirmedUnbilled &&
+		visit.pendingCount === 0 &&
+		visit.unsettledCount === 0;
 	const reached = (status: (typeof kitchenFlow)[number]) =>
 		lines.length > 0 &&
 		lines.every(
@@ -288,6 +301,27 @@ function TableDetail({
 							input={{ branchId: data.branch.id, tableId: table.id, expectedVersion: table.version }}
 							onDone={onDone}
 						/>
+					)}
+					{visitId && canBill && openBill && (
+						<p className="rc-warning">
+							{t("openBills")}: {money(openBill.total, locale)}
+						</p>
+					)}
+					{visitId && canBill && !openBill && (
+						<>
+							<Action
+								action="freeze-bill"
+								label="freezeBill"
+								disabled={!canFreeze}
+								input={{
+									branchId: data.branch.id,
+									id: visitId,
+									expectedVersion: visit?.version,
+								}}
+								onDone={onDone}
+							/>
+							<p className="rc-muted">{t("freezeHint")}</p>
+						</>
 					)}
 					<p className="rc-muted">{t("paymentWarning")}</p>
 				</div>

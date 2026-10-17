@@ -2,6 +2,8 @@ import { z } from "zod";
 import type {
 	ActionInputs,
 	Actor,
+	Bill,
+	BillLine,
 	Branch,
 	Buyer,
 	CommandResult,
@@ -18,6 +20,7 @@ import type {
 	Payment,
 	PaymentException,
 	Role,
+	Shift,
 	Table,
 	Visit,
 	Workspace,
@@ -35,7 +38,17 @@ import {
 	paymentDto,
 	taxIncluded,
 } from "./data.js";
-import type { BranchRow, InvoiceRow, LineRow, MenuRow, OrderRow, VisitRow } from "./data.js";
+import type {
+	BillLineRow,
+	BillRow,
+	BranchRow,
+	InvoiceRow,
+	LineRow,
+	MenuRow,
+	OrderRow,
+	ShiftRow,
+	VisitRow,
+} from "./data.js";
 export { DomainError } from "./data.js";
 
 type Access = { branchId: string; role: Role | "administrator"; memberVersion: number };
@@ -76,6 +89,14 @@ export class RestaurantService {
 					return await this.openVisit(schemas["open-visit"].parse(input));
 				case "close-visit":
 					return await this.closeVisit(schemas["close-visit"].parse(input));
+				case "open-shift":
+					return await this.openShift(schemas["open-shift"].parse(input));
+				case "close-shift":
+					return await this.closeShift(schemas["close-shift"].parse(input));
+				case "freeze-bill":
+					return await this.freezeBill(schemas["freeze-bill"].parse(input));
+				case "settle-bill":
+					return await this.settleBill(schemas["settle-bill"].parse(input));
 				case "join-table":
 					return await this.join(schemas["join-table"].parse(input));
 				case "menu":
@@ -328,6 +349,30 @@ export class RestaurantService {
 		}
 		return orders.map((order) => ({ ...order, lines: grouped.get(order.id) ?? [] }));
 	}
+	private async bills(where: string, values: (string | number)[]): Promise<Bill[]> {
+		const bills = await this.rows<BillRow>(
+			`SELECT ${columns.bill} FROM rc_bills WHERE ${where}`,
+			...values,
+		);
+		if (!bills.length) return [];
+		const lines: BillLineRow[] = [];
+		for (let offset = 0; offset < bills.length; offset += 90) {
+			const ids = bills.slice(offset, offset + 90).map((bill) => bill.id);
+			lines.push(
+				...(await this.rows<BillLineRow>(
+					`SELECT ${columns.billLine} FROM rc_bill_lines WHERE bill_id IN (${ids.map(() => "?").join(",")}) ORDER BY id`,
+					...ids,
+				)),
+			);
+		}
+		const grouped = new Map<string, BillLine[]>();
+		for (const line of lines) {
+			const group = grouped.get(line.billId) ?? [];
+			group.push(line);
+			grouped.set(line.billId, group);
+		}
+		return bills.map((bill) => ({ ...bill, lines: grouped.get(bill.id) ?? [] }));
+	}
 	private async workspace(input: ActionInputs["workspace"]): Promise<Workspace> {
 		const access = await this.access(input.branchId);
 		const branch = await this.branch(input.branchId);
@@ -335,7 +380,7 @@ export class RestaurantService {
 		const cursor = input.cursor ?? "";
 		const privateFinance = access.role === "administrator" || finance.includes(access.role);
 		const manager = access.role === "administrator" || access.role === "manager";
-		const [tables, visits, menu, orders, members, payments, invoices, jobs, exceptions] =
+		const [tables, visits, menu, orders, members, payments, invoices, jobs, exceptions, bills, shift, shifts] =
 			await Promise.all([
 				this.rows<Table>(
 					"SELECT id,name,token,version FROM rc_tables WHERE branch_id=? AND id>? ORDER BY id LIMIT ?",
@@ -425,8 +470,23 @@ export class RestaurantService {
 							limit + 1,
 						)
 					: [],
+				privateFinance
+					? this.bills("branch_id=? AND id>? ORDER BY id LIMIT ?", [branch.id, cursor, limit + 1])
+					: [],
+				privateFinance
+					? this.stmt(
+							`SELECT ${columns.shift} FROM rc_shifts WHERE branch_id=? AND status='open'`,
+							branch.id,
+						).first<ShiftRow>()
+					: null,
+				privateFinance
+					? this.rows<ShiftRow>(
+							`SELECT ${columns.shift} FROM rc_shifts WHERE branch_id=? ORDER BY opened_at DESC,id DESC LIMIT 20`,
+							branch.id,
+						)
+					: [],
 			]);
-		const pages = [tables, visits, menu, orders, payments, invoices, jobs, exceptions];
+		const pages = [tables, visits, menu, orders, payments, invoices, jobs, exceptions, bills];
 		const boundaries = pages
 			.filter((page) => page.length > limit)
 			.map((page) => page[limit - 1]!.id);
@@ -452,6 +512,9 @@ export class RestaurantService {
 			invoices: trim(invoices),
 			jobs: trim(jobs),
 			exceptions: trim(exceptions),
+			shift: shift ?? null,
+			shifts,
+			bills: trim(bills),
 			nextCursor,
 		};
 	}
@@ -676,6 +739,192 @@ export class RestaurantService {
 			}),
 		);
 	}
+	private async openShift(input: ActionInputs["open-shift"]): Promise<unknown> {
+		const access = await this.access(input.branchId, ["manager", "cashier"]);
+		return this.commit(await this.context("open-shift", input, access), "open-shift", async () => {
+			const id = crypto.randomUUID();
+			return {
+				statements: [
+					...this.assertion(
+						"NOT EXISTS(SELECT 1 FROM rc_shifts WHERE branch_id=? AND status='open')",
+						input.branchId,
+					),
+					this.stmt(
+						"INSERT INTO rc_shifts(id,branch_id,status,opened_by,opened_at,opening_float) VALUES (?,?,'open',?,?,?)",
+						id,
+						input.branchId,
+						this.actor?.id ?? null,
+						Date.now(),
+						input.openingFloat,
+					),
+				],
+				result: { id, version: 1 },
+				branchId: input.branchId,
+				entityId: id,
+				detail: { openingFloat: input.openingFloat },
+			};
+		});
+	}
+	private async closeShift(input: ActionInputs["close-shift"]): Promise<unknown> {
+		const access = await this.access(input.branchId, ["manager", "cashier"]);
+		return this.commit(await this.context("close-shift", input, access), "close-shift", async () => {
+			const shift = await this.required<{ status: string; openingFloat: number }>(
+				"SELECT status,opening_float AS openingFloat FROM rc_shifts WHERE branch_id=? AND id=?",
+				input.branchId,
+				input.id,
+			);
+			if (shift.status !== "open")
+				throw new DomainError("CONFLICT", "This shift is already closed", 409);
+			const cash = await this.required<{ total: number }>(
+				"SELECT COALESCE(SUM(total),0) AS total FROM rc_bills WHERE branch_id=? AND shift_id=? AND status='settled' AND method='cash'",
+				input.branchId,
+				input.id,
+			);
+			const expectedCash = exactVnd(BigInt(shift.openingFloat) + BigInt(cash.total));
+			const variance = input.countedCash - expectedCash;
+			return {
+				statements: [
+					...this.fenced(
+						this.stmt(
+							"UPDATE rc_shifts SET status='closed',closed_by=?,closed_at=?,expected_cash=?,counted_cash=?,variance=?,note=?,version=version+1 WHERE branch_id=? AND id=? AND version=? AND status='open'",
+							this.actor?.id ?? null,
+							Date.now(),
+							expectedCash,
+							input.countedCash,
+							variance,
+							input.note,
+							input.branchId,
+							input.id,
+							input.expectedVersion,
+						),
+					),
+				],
+				result: { id: input.id, version: input.expectedVersion + 1, expectedCash, variance },
+				branchId: input.branchId,
+				entityId: input.id,
+				detail: { countedCash: input.countedCash, expectedCash, variance },
+			};
+		});
+	}
+	private async freezeBill(input: ActionInputs["freeze-bill"]): Promise<unknown> {
+		const access = await this.access(input.branchId, ["manager", "cashier"]);
+		return this.commit(await this.context("freeze-bill", input, access), "freeze-bill", async () => {
+			const visit = await this.visit(input.branchId, input.id);
+			const blockers = await this.required<{ pending: number; unsettled: number }>(
+				`SELECT (SELECT COUNT(*) FROM rc_orders WHERE visit_id=? AND status='pending') AS pending,
+				(SELECT COUNT(*) FROM rc_order_lines l JOIN rc_orders o ON o.id=l.order_id WHERE o.visit_id=? AND o.status='confirmed' AND l.kitchen_status<>'served') AS unsettled`,
+				visit.id,
+				visit.id,
+			);
+			if (blockers.pending)
+				throw new DomainError("PENDING_ORDERS", "Resolve pending requests before billing", 409);
+			if (blockers.unsettled)
+				throw new DomainError("UNSERVED_DISHES", "Serve every billed dish before billing", 409);
+			const orders = await this.orders(
+				"visit_id=? AND status='confirmed' AND bill_id IS NULL ORDER BY id",
+				[visit.id],
+			);
+			if (!orders.length)
+				throw new DomainError("EMPTY_BILL", "A bill requires confirmed, unbilled items");
+			const total = exactVnd(orders.reduce((sum, order) => sum + BigInt(order.total), 0n));
+			const billId = crypto.randomUUID();
+			const shift = await this.stmt("SELECT id FROM rc_shifts WHERE branch_id=? AND status='open'")
+				.bind(input.branchId)
+				.first<{ id: string }>();
+			const statements: D1PreparedStatement[] = [
+				...this.fenced(
+					this.stmt(
+						"UPDATE rc_visits SET status='billing',version=version+1 WHERE branch_id=? AND id=? AND version=? AND status IN ('open','paid')",
+						input.branchId,
+						visit.id,
+						input.expectedVersion,
+					),
+				),
+				this.stmt(
+					"INSERT INTO rc_bills(id,branch_id,visit_id,shift_id,status,total,created_by,created_at) VALUES (?,?,?,?,'open',?,?,?)",
+					billId,
+					input.branchId,
+					visit.id,
+					shift?.id ?? null,
+					total,
+					this.actor?.id ?? null,
+					Date.now(),
+				),
+				this.stmt(
+					"UPDATE rc_orders SET bill_id=? WHERE branch_id=? AND visit_id=? AND status='confirmed' AND bill_id IS NULL",
+					billId,
+					input.branchId,
+					visit.id,
+				),
+			];
+			for (const order of orders)
+				for (const line of order.lines)
+					statements.push(
+						this.stmt(
+							"INSERT INTO rc_bill_lines(id,bill_id,order_id,name,quantity,unit_price,tax_rate,total) VALUES (?,?,?,?,?,?,?,?)",
+							crypto.randomUUID(),
+							billId,
+							order.id,
+							line.name,
+							line.quantity,
+							line.unitPrice,
+							line.taxRate,
+							line.total,
+						),
+					);
+			return {
+				statements,
+				result: { id: billId, version: 1 },
+				branchId: input.branchId,
+				entityId: billId,
+				detail: { visitId: visit.id, total, orderCount: orders.length },
+			};
+		});
+	}
+	private async settleBill(input: ActionInputs["settle-bill"]): Promise<unknown> {
+		const access = await this.access(input.branchId, ["manager", "cashier"]);
+		return this.commit(await this.context("settle-bill", input, access), "settle-bill", async () => {
+			const bill = await this.required<{ visitId: string; status: string }>(
+				"SELECT visit_id AS visitId,status FROM rc_bills WHERE branch_id=? AND id=?",
+				input.branchId,
+				input.id,
+			);
+			if (bill.status !== "open")
+				throw new DomainError("CONFLICT", "This bill is already settled", 409);
+			const shift = await this.stmt("SELECT id FROM rc_shifts WHERE branch_id=? AND status='open'")
+				.bind(input.branchId)
+				.first<{ id: string }>();
+			if (input.method === "cash" && !shift)
+				throw new DomainError("SHIFT_REQUIRED", "Open a shift before recording cash", 409);
+			return {
+				statements: [
+					...this.fenced(
+						this.stmt(
+							"UPDATE rc_bills SET status='settled',method=?,reference=?,shift_id=?,settled_by=?,settled_at=?,version=version+1 WHERE branch_id=? AND id=? AND version=? AND status='open'",
+							input.method,
+							input.reference || null,
+							shift?.id ?? null,
+							this.actor?.id ?? null,
+							Date.now(),
+							input.branchId,
+							input.id,
+							input.expectedVersion,
+						),
+					),
+					this.stmt(
+						"UPDATE rc_visits SET status=CASE WHEN EXISTS(SELECT 1 FROM rc_orders WHERE visit_id=? AND bill_id IS NULL) THEN 'open' ELSE 'paid' END,version=version+1 WHERE id=? AND branch_id=? AND status='billing'",
+						bill.visitId,
+						bill.visitId,
+						input.branchId,
+					),
+				],
+				result: { id: input.id, version: input.expectedVersion + 1 },
+				branchId: input.branchId,
+				entityId: input.id,
+				detail: { visitId: bill.visitId, method: input.method, reference: input.reference || null },
+			};
+		});
+	}
 	private async join(input: ActionInputs["join-table"]): Promise<unknown> {
 		const table = await this.required<Table & { branchId: string }>(
 			"SELECT id,name,token,version,branch_id AS branchId FROM rc_tables WHERE token=?",
@@ -784,7 +1033,7 @@ export class RestaurantService {
 					...this.guestFence(visit),
 					...this.fenced(
 						this.stmt(
-							"UPDATE rc_visits SET version=version+1 WHERE id=? AND version=? AND status='open'",
+							"UPDATE rc_visits SET status='open',version=version+1 WHERE id=? AND version=? AND status IN ('open','paid')",
 							visit.id,
 							input.expectedVersion,
 						),
@@ -881,7 +1130,7 @@ export class RestaurantService {
 				),
 				...this.fenced(
 					this.stmt(
-						"UPDATE rc_orders SET status=?,reason=?,version=version+1 WHERE id=? AND branch_id=? AND version=? AND status=?",
+						`UPDATE rc_orders SET status=?,reason=?,version=version+1 WHERE id=? AND branch_id=? AND version=? AND status=?${action === "void-order" ? " AND bill_id IS NULL" : ""}`,
 						status,
 						input.reason ?? null,
 						input.id,

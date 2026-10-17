@@ -170,3 +170,12 @@ export function IconPlus(props: IconProps) {
 		</svg>
 	);
 }
+
+export function IconShift(props: IconProps) {
+	return (
+		<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...props}>
+			<circle cx="12" cy="12" r="9" {...stroke} />
+			<path d="M12 7.5V12l3 2" {...stroke} />
+		</svg>
+	);
+}

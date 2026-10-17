@@ -1,4 +1,6 @@
 import type {
+	Bill,
+	BillLine,
 	Branch,
 	Invoice,
 	MenuItem,
@@ -6,6 +8,7 @@ import type {
 	Order,
 	OrderLine,
 	Payment,
+	Shift,
 	Visit,
 } from "./types.js";
 import { issuerSchema, MAX_VND } from "./validation.js";
@@ -26,8 +29,14 @@ export const columns = {
 		"id,name,bank_account AS bankAccount,bank_code AS bankCode,bank_name AS bankName,sub_account AS subAccount,qr_mode AS qrMode,transfer_prefix AS transferPrefix,credential_context AS credentialContext,environment,issuer_json AS issuerJson,version",
 	visit: "id,table_id AS tableId,status,version,expires_at AS expiresAt,created_at AS createdAt",
 	menu: "id,name,category,description,image,price,tax_rate AS taxRate,available,modifiers_json AS modifiersJson,version",
-	order: "id,visit_id AS visitId,status,note,reason,total,version,created_at AS createdAt",
+	order: "id,visit_id AS visitId,status,note,reason,total,version,created_at AS createdAt,bill_id AS billId",
 	line: "id,menu_item_id AS menuItemId,name,quantity,unit_price AS unitPrice,tax_rate AS taxRate,modifiers_json AS modifiersJson,total,tax_amount AS taxAmount,kitchen_status AS kitchenStatus,version",
+	shift:
+		"id,status,opened_by AS openedBy,opened_at AS openedAt,closed_by AS closedBy,closed_at AS closedAt,opening_float AS openingFloat,expected_cash AS expectedCash,counted_cash AS countedCash,variance,note,version",
+	bill:
+		"id,branch_id AS branchId,visit_id AS visitId,shift_id AS shiftId,status,method,reference,total,created_by AS createdBy,created_at AS createdAt,settled_by AS settledBy,settled_at AS settledAt,version",
+	billLine:
+		"id,bill_id AS billId,order_id AS orderId,name,quantity,unit_price AS unitPrice,tax_rate AS taxRate,total",
 	payment:
 		"id,visit_id AS visitId,reference,amount,bank_account AS bankAccount,bank_code AS bankCode,bank_name AS bankName,sub_account AS subAccount,qr_mode AS qrMode,transfer_prefix AS transferPrefix,status,version,created_at AS createdAt",
 	invoice:
@@ -41,6 +50,9 @@ export type MenuRow = Omit<MenuItem, "modifiers" | "available"> & {
 export type LineRow = Omit<OrderLine, "modifiers"> & { modifiersJson: string; orderId: string };
 export type VisitRow = Visit & { branchId: string };
 export type OrderRow = Omit<Order, "lines">;
+export type ShiftRow = Shift;
+export type BillRow = Omit<Bill, "lines">;
+export type BillLineRow = BillLine;
 export type InvoiceRow = Invoice & {
 	credentialContext: string;
 	environment: string;

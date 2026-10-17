@@ -21,6 +21,7 @@ export function mergeWorkspacePage(current: Workspace, next: Workspace): Workspa
 		payments: mergeRecords(current.payments, next.payments),
 		invoices: mergeRecords(current.invoices, next.invoices),
 		jobs: mergeRecords(current.jobs, next.jobs),
+		bills: mergeRecords(current.bills, next.bills),
 		exceptions: mergeRecords(current.exceptions, next.exceptions),
 	};
 }

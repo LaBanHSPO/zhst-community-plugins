@@ -6,6 +6,7 @@ import { useText } from "./locale.js";
 import type { TextKey } from "./locale.js";
 import { Action, Choice, Failure, Section, Status, useCommand, useUnsaved } from "./shared.js";
 import { OrderDetails } from "./service.js";
+import { Bills } from "./shift.js";
 
 function InvoiceForm({
 	branchId,
@@ -328,6 +329,7 @@ export function Finance({ data, onDone }: { data: Workspace; onDone: () => void 
 	const canCashier = ["manager", "administrator", "cashier"].includes(data.role);
 	return (
 		<>
+			<Bills data={data} onDone={onDone} />
 			<Section title={t("payments")}>
 				<Choice
 					label={t("selectVisit")}

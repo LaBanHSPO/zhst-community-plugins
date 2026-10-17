@@ -118,6 +118,18 @@ export const schemas = {
 		.refine(paired, "Existing records require a version"),
 	"open-visit": z.strictObject({ ...base, tableId: id, expectedVersion: version }),
 	"close-visit": z.strictObject(revision),
+	"open-shift": z.strictObject({ ...base, openingFloat: money.default(0) }),
+	"close-shift": z.strictObject({
+		...revision,
+		countedCash: money,
+		note: z.string().trim().max(1000).default(""),
+	}),
+	"freeze-bill": z.strictObject(revision),
+	"settle-bill": z.strictObject({
+		...revision,
+		method: z.enum(["cash", "bank_transfer"]),
+		reference: z.string().trim().max(100).default(""),
+	}),
 	"join-table": z.strictObject({ commandId, tableToken: id }),
 	menu: z.strictObject({ token: id, ...paging }),
 	"guest-status": z.strictObject({ token: id, ...paging }),

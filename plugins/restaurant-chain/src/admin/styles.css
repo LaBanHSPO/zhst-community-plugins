@@ -991,6 +991,61 @@
 	border-block: 1px solid var(--rc-line);
 	font-size: 20px;
 }
+.rc-bill {
+	margin-block: var(--rc-space-4);
+}
+.rc-bill-lines {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--rc-space-2);
+}
+.rc-bill-lines li {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--rc-space-3);
+}
+.rc-bill-lines li span:last-child {
+	color: var(--rc-subtle);
+}
+.rc-settle {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--rc-space-3);
+	margin-block-start: var(--rc-space-4);
+	padding-block-start: var(--rc-space-4);
+	border-block-start: 1px solid var(--rc-line);
+}
+.rc-settle > * {
+	inline-size: min(320px, 100%);
+}
+.rc-check {
+	display: flex;
+	align-items: center;
+	gap: var(--rc-space-2);
+	font-weight: 600;
+}
+.rc-check input {
+	inline-size: 18px;
+	block-size: 18px;
+}
+.rc-shift-numbers {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 2px;
+	text-align: end;
+}
+.rc-shift-numbers [data-variance="diff"] {
+	color: var(--rc-danger);
+	font-weight: 700;
+}
+.rc-list-row small.rc-muted {
+	display: block;
+}
 .rc-qr {
 	display: block;
 	max-inline-size: 100%;
