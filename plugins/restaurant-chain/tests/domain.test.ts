@@ -275,7 +275,8 @@ describe("D1 restaurant domain", () => {
 
 	it("denies closed or expired guest tokens, including after another visit opens", async () => {
 		await command(admin, "close-visit", { branchId, id: session.visit.id, expectedVersion: 1 });
-		await command(admin, "open-visit", { branchId, tableId, expectedVersion: 2 });
+		await command(admin, "clean-table", { branchId, tableId, expectedVersion: 3 });
+		await command(admin, "open-visit", { branchId, tableId, expectedVersion: 4 });
 		await assert.rejects(guest.execute("menu", { token: session.token }), {
 			code: "SESSION_CLOSED",
 		});
@@ -1307,5 +1308,24 @@ describe("D1 restaurant domain", () => {
 		});
 		const stored = (await workspace()).orders.find((entry) => entry.id === order.id)!;
 		assert.equal(stored.lines[0]!.unitPrice, 100000);
+	});
+
+	it("requires cleaning a table before the next visit", async () => {
+		await command(admin, "close-visit", { branchId, id: session.visit.id, expectedVersion: 1 });
+		const dirty = (await workspace()).tables.find((entry) => entry.id === tableId)!;
+		assert.equal(dirty.dirty, true);
+		await assert.rejects(
+			command(admin, "open-visit", { branchId, tableId, expectedVersion: dirty.version }),
+			{ code: "CONFLICT" },
+		);
+		await command(admin, "clean-table", { branchId, tableId, expectedVersion: dirty.version });
+		const clean = (await workspace()).tables.find((entry) => entry.id === tableId)!;
+		assert.equal(clean.dirty, false);
+		await command(admin, "open-visit", { branchId, tableId, expectedVersion: clean.version });
+		assert.ok(
+			(await workspace()).visits.some(
+				(entry) => entry.tableId === tableId && entry.status === "open",
+			),
+		);
 	});
 });

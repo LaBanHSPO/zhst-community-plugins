@@ -523,6 +523,11 @@
 	background: var(--rc-success-tint);
 	color: var(--rc-success);
 }
+.rc-tile[data-state="dirty"] {
+	background: var(--rc-warning-tint);
+	color: var(--rc-warning);
+	border-color: var(--rc-warning);
+}
 .rc-tile[data-state="closed"] {
 	background: var(--rc-base);
 }
@@ -570,6 +575,10 @@
 .rc-legend i[data-state="billing"] {
 	background: var(--rc-brand-tint);
 	border-color: var(--rc-brand);
+}
+.rc-legend i[data-state="dirty"] {
+	background: var(--rc-warning-tint);
+	border-color: var(--rc-warning);
 }
 
 /* --------------------------------------------------------------- Orders rail */

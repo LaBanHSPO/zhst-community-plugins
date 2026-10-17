@@ -337,6 +337,9 @@ export const messages = {
 		"Giá món đã thay đổi. Vui lòng xem giá mới và xác nhận lại.",
 		"تغيّر سعر الطبق. يرجى مراجعة السعر الجديد والتأكيد.",
 	],
+	needsCleaning: ["Cần dọn bàn", "تحتاج إلى تنظيف"],
+	cleanTable: ["Đã dọn bàn", "تم تنظيف الطاولة"],
+	dirty: ["Cần dọn bàn", "تحتاج إلى تنظيف"],
 } as const;
 export type TextKey = keyof typeof messages;
 const LocaleContext = createContext<{ locale: string; setLocale: (locale: string) => void }>({

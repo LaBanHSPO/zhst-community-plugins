@@ -62,6 +62,7 @@ export interface Table {
 	id: string;
 	name: string;
 	token: string;
+	dirty: boolean;
 	version: number;
 }
 export interface Shift {
@@ -308,6 +309,7 @@ export interface ActionInputs {
 	};
 	"open-visit": Command & { tableId: string; expectedVersion: number };
 	"close-visit": RevisionCommand;
+	"clean-table": Command & { tableId: string; expectedVersion: number };
 	"open-shift": Command & { openingFloat: number };
 	"close-shift": RevisionCommand & { countedCash: number; note: string };
 	"freeze-bill": RevisionCommand;

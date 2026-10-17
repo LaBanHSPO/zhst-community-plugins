@@ -80,6 +80,13 @@ plus settled cash) and stores the variance and note.
 The SePay QR flow below remains available for operators who configure a provider; it is
 independent of manual bills and is not required for the MVP.
 
+## Clean a table between parties
+
+Settling a bill does not free the table. Closing the visit (**Kết thúc lượt**) marks the
+table dirty, and a new visit cannot open on that table until staff mark it clean (**Đã
+dọn bàn**). The floor plan shows a distinct "needs cleaning" state, so the sequence is
+settle → close → clean → seat the next party.
+
 ## Confirm payment
 
 Generating or displaying a QR does not mark a bill paid. The host authenticates the SePay webhook, saves the inbox receipt and processing job in one D1 batch, then acknowledges it. Queue processing verifies incoming direction, context/environment, receiving bank/account/sub-account, reference, amount, and attempt status before allocating money.
