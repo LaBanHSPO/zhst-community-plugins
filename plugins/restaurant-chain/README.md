@@ -58,6 +58,17 @@ cashier and manager roles see the open queue in the workspace and mark a request
 **Đã xử lý**; the guest status shows an open request until it is handled. Kitchen roles
 do not receive these requests. A closed or expired visit rejects new requests.
 
+## Move a table and mark items sold out
+
+Floor, cashier and manager roles can move an open visit to an empty table (**Chuyển
+bàn**). The target must have no active visit; the guest session stays valid because it is
+bound to the visit, and the freed table accepts a new visit. A closed visit cannot be
+moved.
+
+Kitchen, manager and administrator roles can mark a menu item sold out or available again
+from the workspace (**Tình trạng món**). Guests then see the dish as unavailable and
+cannot order it until it is restored.
+
 ## Open a shift and settle a bill by hand
 
 The dine-in MVP settles tables without any external provider. A cashier or manager
