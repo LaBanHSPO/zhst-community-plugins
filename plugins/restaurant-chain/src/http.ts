@@ -19,6 +19,7 @@ const commands: Record<string, true | undefined> = {
 	"save-menu-item": true,
 	"open-visit": true,
 	"close-visit": true,
+	"clean-table": true,
 	"open-shift": true,
 	"close-shift": true,
 	"freeze-bill": true,

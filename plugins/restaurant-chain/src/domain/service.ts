@@ -90,6 +90,8 @@ export class RestaurantService {
 					return await this.openVisit(schemas["open-visit"].parse(input));
 				case "close-visit":
 					return await this.closeVisit(schemas["close-visit"].parse(input));
+				case "clean-table":
+					return await this.cleanTable(schemas["clean-table"].parse(input));
 				case "open-shift":
 					return await this.openShift(schemas["open-shift"].parse(input));
 				case "close-shift":
@@ -387,8 +389,8 @@ export class RestaurantService {
 		const manager = access.role === "administrator" || access.role === "manager";
 		const [tables, visits, menu, orders, members, payments, invoices, jobs, exceptions, bills, shift, shifts, serviceRequests] =
 			await Promise.all([
-				this.rows<Table>(
-					"SELECT id,name,token,version FROM rc_tables WHERE branch_id=? AND id>? ORDER BY id LIMIT ?",
+				this.rows<Omit<Table, "dirty"> & { dirty: number }>(
+					"SELECT id,name,token,version,dirty FROM rc_tables WHERE branch_id=? AND id>? ORDER BY id LIMIT ?",
 					branch.id,
 					cursor,
 					limit + 1,
@@ -513,7 +515,7 @@ export class RestaurantService {
 					? branch
 					: { id: branch.id, name: branch.name, version: branch.version },
 			role: access.role,
-			tables: trim(tables),
+			tables: trim(tables).map((table) => ({ ...table, dirty: table.dirty === 1 })),
 			visits: trim(visits),
 			menu: trim(menu).map(menuDto),
 			orders: trim(orders),
@@ -703,7 +705,7 @@ export class RestaurantService {
 				statements: [
 					...this.fenced(
 						this.stmt(
-							"UPDATE rc_tables SET version=version+1 WHERE branch_id=? AND id=? AND version=?",
+							"UPDATE rc_tables SET version=version+1 WHERE branch_id=? AND id=? AND version=? AND dirty=0",
 							input.branchId,
 							input.tableId,
 							input.expectedVersion,
@@ -746,6 +748,11 @@ export class RestaurantService {
 							input.id,
 						),
 					),
+					this.stmt(
+						"UPDATE rc_tables SET dirty=1,version=version+1 WHERE branch_id=? AND id=(SELECT table_id FROM rc_visits WHERE id=?) AND dirty=0",
+						input.branchId,
+						input.id,
+					),
 				],
 				result: { id: input.id, version: input.expectedVersion + 1 },
 				branchId: input.branchId,
@@ -753,16 +760,30 @@ export class RestaurantService {
 			}),
 		);
 	}
+	private async cleanTable(input: ActionInputs["clean-table"]): Promise<unknown> {
+		const access = await this.access(input.branchId, floor);
+		return this.commit(await this.context("clean-table", input, access), "clean-table", async () => ({
+			statements: [
+				...this.fenced(
+					this.stmt(
+						"UPDATE rc_tables SET dirty=0,version=version+1 WHERE branch_id=? AND id=? AND version=? AND dirty=1",
+						input.branchId,
+						input.tableId,
+						input.expectedVersion,
+					),
+				),
+			],
+			result: { id: input.tableId, version: input.expectedVersion + 1 },
+			branchId: input.branchId,
+			entityId: input.tableId,
+		}));
+	}
 	private async openShift(input: ActionInputs["open-shift"]): Promise<unknown> {
 		const access = await this.access(input.branchId, ["manager", "cashier"]);
 		return this.commit(await this.context("open-shift", input, access), "open-shift", async () => {
 			const id = crypto.randomUUID();
 			return {
 				statements: [
-					...this.assertion(
-						"NOT EXISTS(SELECT 1 FROM rc_shifts WHERE branch_id=? AND status='open')",
-						input.branchId,
-					),
 					this.stmt(
 						"INSERT INTO rc_shifts(id,branch_id,status,opened_by,opened_at,opening_float) VALUES (?,?,'open',?,?,?)",
 						id,

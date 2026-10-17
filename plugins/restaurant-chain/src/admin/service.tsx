@@ -293,6 +293,20 @@ function TableDetail({
 							}}
 							onDone={onDone}
 						/>
+					) : table.dirty ? (
+						<>
+							<p className="rc-warning">{t("needsCleaning")}</p>
+							<Action
+								action="clean-table"
+								label="cleanTable"
+								input={{
+									branchId: data.branch.id,
+									tableId: table.id,
+									expectedVersion: table.version,
+								}}
+								onDone={onDone}
+							/>
+						</>
 					) : (
 						<Action
 							action="open-visit"
@@ -357,9 +371,10 @@ export function Floor({
 		[data.orders],
 	);
 	const openRequests = data.serviceRequests.filter((request) => request.status === "open");
-	function stateFor(tableId: string) {
-		const visit = openVisits.find((candidate) => candidate.tableId === tableId);
-		return visit ? visit.status : "closed";
+	function stateFor(table: Table) {
+		const visit = openVisits.find((candidate) => candidate.tableId === table.id);
+		if (visit) return visit.status;
+		return table.dirty ? "dirty" : "closed";
 	}
 	return (
 		<>
@@ -376,7 +391,7 @@ export function Floor({
 								<TableTile
 									key={table.id}
 									table={table}
-									state={stateFor(table.id)}
+									state={stateFor(table)}
 									selected={table.id === selectedId}
 									onSelect={() => setSelectedId(table.id)}
 								/>
@@ -405,6 +420,20 @@ export function Floor({
 													onDone={onDone}
 												/>
 											</>
+										) : table.dirty ? (
+											<>
+												<p className="rc-warning">{t("needsCleaning")}</p>
+												<Action
+													action="clean-table"
+													label="cleanTable"
+													input={{
+														branchId,
+														tableId: table.id,
+														expectedVersion: table.version,
+													}}
+													onDone={onDone}
+												/>
+											</>
 										) : (
 											<Action
 												action="open-visit"
@@ -428,6 +457,9 @@ export function Floor({
 						</span>
 						<span>
 							<i data-state="billing" /> {t("billing")}
+						</span>
+						<span>
+							<i data-state="dirty" /> {t("needsCleaning")}
 						</span>
 					</div>
 				</section>

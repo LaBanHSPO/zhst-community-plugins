@@ -118,6 +118,7 @@ export const schemas = {
 		.refine(paired, "Existing records require a version"),
 	"open-visit": z.strictObject({ ...base, tableId: id, expectedVersion: version }),
 	"close-visit": z.strictObject(revision),
+	"clean-table": z.strictObject({ ...base, tableId: id, expectedVersion: version }),
 	"open-shift": z.strictObject({ ...base, openingFloat: money.default(0) }),
 	"close-shift": z.strictObject({
 		...revision,

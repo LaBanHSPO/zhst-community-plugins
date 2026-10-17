@@ -333,6 +333,9 @@ export const messages = {
 		"انقطع الاتصال. ستُعاد المحاولة عند توفر الشبكة.",
 	],
 	backOnline: ["Đã kết nối lại.", "تم الاتصال مجدداً."],
+	needsCleaning: ["Cần dọn bàn", "تحتاج إلى تنظيف"],
+	cleanTable: ["Đã dọn bàn", "تم تنظيف الطاولة"],
+	dirty: ["Cần dọn bàn", "تحتاج إلى تنظيف"],
 } as const;
 export type TextKey = keyof typeof messages;
 const LocaleContext = createContext<{ locale: string; setLocale: (locale: string) => void }>({
