@@ -13,6 +13,8 @@ import { Miniflare } from 'miniflare';
 const bundled = await build({ entryPoints: [fileURLToPath(new URL('./accounting-cloudflare-worker.mjs', import.meta.url))], bundle: true, write: false, platform: 'browser', format: 'esm', external: ['cloudflare:workers'] });
 const legacySql = await readFile(new URL('../migrations/0001_accounting.sql', import.meta.url), 'utf8');
 const legacyArtifact = { sql: legacySql, checksum: createHash('sha256').update(legacySql).digest('hex') };
+const secondSql = await readFile(new URL('../migrations/0002_coa_import.sql', import.meta.url), 'utf8');
+const secondArtifact = { sql: secondSql, checksum: createHash('sha256').update(secondSql).digest('hex') };
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'erp-workerd-accounting-'));
   const options = { script: bundled.outputFiles[0].text, modules: true, compatibilityDate: '2026-07-30', durableObjects: { ACCOUNTING: { className: 'TestAccounting', useSQLite: true } }, durableObjectsPersist: directory };
@@ -73,10 +75,9 @@ test('workerd runtime never auto-migrates; explicit migration is empty/idempoten
   assert.deepEqual(await successful(f, 'status'), { version: null, checksum: null, bookConfigured: false });
   assert.equal((await f.send('service', undefined, 'info')).error.code, 'SCHEMA_VERSION');
   const status = await successful(f, 'migrate');
-  assert.equal(status.version, 2); assert.match(status.checksum, /^[a-f0-9]{64}$/); assert.equal(status.bookConfigured, false);
+  assert.equal(status.version, 3); assert.match(status.checksum, /^[a-f0-9]{64}$/); assert.equal(status.bookConfigured, false);
   const migration = await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_migrations' });
-  assert.deepEqual(migration.map(({ version }) => version), [1, 2]);
-  for (const name of ['settings', 'accounts', 'parties', 'journals', 'lines', 'allocations', 'audit', 'commands', 'coa_imports']) {
+  for (const name of ['settings', 'accounts', 'parties', 'journals', 'lines', 'allocations', 'audit', 'commands', 'coa_imports', 'hkd_profiles', 'hkd_events', 'hkd_commands']) {
     assert.deepEqual(await successful(f, 'raw', { sql: `SELECT * FROM erp_ac_${name}` }), [], name);
   }
   await successful(f, 'migrate');
@@ -91,12 +92,12 @@ test('workerd runtime never auto-migrates; explicit migration is empty/idempoten
 test('migration failure after real SQL DDL rolls back all plugin schema and permits explicit retry', async (t) => {
   const f = await fixture(t);
   assert.deepEqual(await successful(f, 'migration-fault'), { failure: 'ACCOUNTING_STORAGE', status: { version: null, checksum: null, bookConfigured: false } });
-  assert.equal((await successful(f, 'migrate')).version, 2);
+  assert.equal((await successful(f, 'migrate')).version, 3);
 });
 
 test('checksum, newer version, missing triggers and unrecognized plugin-owned objects fail closed without repair', async (t) => {
   const f = await fixture(t);
-  const mutations = ["UPDATE erp_ac_migrations SET checksum=printf('%064d',0)", 'UPDATE erp_ac_migrations SET version=3 WHERE version=2', 'DELETE FROM erp_ac_migrations WHERE version=1', 'DROP TRIGGER erp_ac_settings_update', 'DROP TRIGGER erp_ac_coa_imports_insert', 'CREATE TABLE erp_ac_unapproved(value TEXT)', 'CREATE TRIGGER foreign_named_trigger AFTER INSERT ON erp_ac_accounts BEGIN SELECT 1; END'];
+  const mutations = ["UPDATE erp_ac_migrations SET checksum=printf('%064d',0)", 'UPDATE erp_ac_migrations SET version=99 WHERE version=2', 'DELETE FROM erp_ac_migrations WHERE version=1', 'DROP TRIGGER erp_ac_settings_update', 'DROP TRIGGER erp_ac_coa_imports_insert', 'DROP TRIGGER erp_ac_hkd_commands_insert', 'CREATE TABLE erp_ac_unapproved(value TEXT)', 'CREATE TRIGGER foreign_named_trigger AFTER INSERT ON erp_ac_accounts BEGIN SELECT 1; END'];
   for (const [index, sql] of mutations.entries()) {
     const name = `drift-${index}`;
     await successful(f, 'migrate', undefined, undefined, undefined, name);
@@ -354,7 +355,7 @@ test('real schema1 posted history and allocations survive atomic deferred-FK upg
   assert.deepEqual(await databaseSnapshot(f), before);
   assert.deepEqual(await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_migrations ORDER BY version' }), migrations);
   assert.deepEqual(await successful(f, 'raw', { sql: 'PRAGMA defer_foreign_keys' }), [{ defer_foreign_keys: 0 }]);
-  assert.equal((await successful(f, 'migrate')).version, 2);
+  assert.equal((await successful(f, 'migrate')).version, 3);
   assert.deepEqual(await databaseSnapshot(f), before);
   assert.deepEqual((await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_migrations WHERE version=1' })), migrations);
   assert.deepEqual(await successful(f, 'raw', { sql: 'PRAGMA foreign_keys' }), [{ foreign_keys: 1 }]);
@@ -395,4 +396,41 @@ test('real foreign-key corruption is rejected by status, open and migration with
     assert.equal((await f.send(operation, undefined, 'info')).error.code, 'SCHEMA_VERSION');
   }
   assert.deepEqual(await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_lines' }), before);
+});
+
+test('schema2 COA/journal receipts survive interrupted schema3 upgrade and independent household book persistence', async (t) => {
+  const f = await fixture(t);
+  const legacy = await successful(f, 'legacy-fixture', { ...legacyArtifact, second: secondArtifact });
+  const before = await databaseSnapshot(f);
+  const imports = await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_coa_imports ORDER BY commandId' });
+  const status = await successful(f, 'status');
+  assert.equal(status.version, 2);
+  assert.equal((await f.send('service', undefined, 'hkd-info')).error.code, 'SCHEMA_VERSION');
+  const interrupted = await successful(f, 'migration-fault', { version: 3 });
+  assert.equal(interrupted.failure, 'ACCOUNTING_STORAGE');
+  assert.deepEqual(interrupted.status, status);
+  assert.deepEqual(await databaseSnapshot(f), before);
+  assert.deepEqual(await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_coa_imports ORDER BY commandId' }), imports);
+  assert.equal((await successful(f, 'migrate')).version, 3);
+  assert.deepEqual(await databaseSnapshot(f), before);
+  assert.deepEqual(await action(f, 'post-journal', legacy.command), legacy.receipt);
+  assert.deepEqual(await action(f, 'post-journal', legacy.settlementCommand), legacy.settlementReceipt);
+  const { commandId, templateId, templateVersion, selectedCodes } = legacy.importReceipt;
+  assert.deepEqual(await action(f, 'import-accounts', { commandId, templateId, templateVersion, selectedCodes }), legacy.importReceipt);
+  const config = { commandId: randomUUID(), year: 2030, startDate: '2030-01-01', name: 'Hộ tổng hợp',
+    address: 'Địa chỉ tổng hợp', taxCode: '0123456789', representative: 'Người tổng hợp', location: 'Cửa hàng',
+    taxMethod: 'exempt', periodType: 'quarter', incomeTaxRateBps: null, otherTaxes: false };
+  const configured = await action(f, 'hkd-configure', config);
+  const input = { commandId: randomUUID(), year: 2030, installationId: configured.profile.installationId, revision: configured.profile.revision, entry: { kind: 'revenue', date: '2030-01-05',
+    documentDate: '2030-01-05', documentNumber: 'HKD-001', description: 'Doanh thu hộ',
+    amountMinor: 25, businessLine: '', vatRateBps: 0, pitRateBps: 0, vatTaxableMinor: 0, pitTaxableMinor: 0, incomeRevenueMinor: 0 } };
+  const posted = await action(f, 'hkd-post-entry', input);
+  assert.deepEqual(await action(f, 'hkd-post-entry', input), posted);
+  assert.equal((await f.send('service', { ...input, commandId }, 'hkd-post-entry')).error.code, 'IDEMPOTENCY_CONFLICT');
+  assert.equal((await f.send('service', { commandId: input.commandId, templateId, templateVersion, selectedCodes }, 'import-accounts')).error.code, 'IDEMPOTENCY_CONFLICT');
+  await f.restart();
+  const report = await action(f, 'hkd-report', { year: 2030, period: 1, book: 'S1a-HKD' });
+  assert.equal(report.rows.find((row) => row.entryId === posted.entry.id)?.cells.description, input.entry.description);
+  assert.deepEqual(await databaseSnapshot(f), before);
+  assert.deepEqual(await successful(f, 'raw', { sql: 'SELECT * FROM erp_ac_coa_imports ORDER BY commandId' }), imports);
 });

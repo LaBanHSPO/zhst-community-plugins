@@ -6,7 +6,7 @@ export type PartyKind = 'customer' | 'supplier';
 export type JournalKind = 'journal' | 'opening' | 'receipt' | 'payment' | 'reversal';
 export type JournalStatus = 'draft' | 'cancelled' | 'posted';
 export type LineRole = 'general' | 'open-item' | 'settlement' | 'reversal';
-export type AccountingAction = 'info' | 'configure-book' | 'list' | 'get' | 'report' | 'save-account' | 'account-templates' | 'account-template' | 'preview-account-import' | 'import-accounts' | 'save-party' | 'link-customer' | 'save-journal' | 'cancel-draft' | 'post-journal' | 'reverse-journal' | 'save-settlement';
+export type AccountingAction = 'info' | 'configure-book' | 'list' | 'get' | 'report' | 'save-account' | 'account-templates' | 'account-template' | 'preview-account-import' | 'import-accounts' | 'save-party' | 'link-customer' | 'save-journal' | 'cancel-draft' | 'post-journal' | 'reverse-journal' | 'save-settlement' | 'hkd-info' | 'hkd-configure' | 'hkd-post-entry' | 'hkd-void-entry' | 'hkd-list' | 'hkd-report';
 export interface BookSettings extends Metadata { currency: 'VND'; minorUnits: 0; startDate: string; installationId: string }
 export interface AccountingInfo { enabled: true; currency: 'VND'; minorUnits: 0; pageSize: 25; maxLines: 50; book: RecordView<BookSettings> | null }
 export interface Account extends Metadata { code: string; name: string; rootType: RootType; purpose: AccountPurpose; isGroup: boolean; parentId: string | null; active: boolean }

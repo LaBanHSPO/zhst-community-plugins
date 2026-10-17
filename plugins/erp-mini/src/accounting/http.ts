@@ -3,6 +3,7 @@ import { ErpError, parse } from '../validation.js';
 import type { AccountingService } from './service.js';
 import type { ErpAccountingSource } from './erp-source.js';
 import { accountSchema, accountingGetSchema, accountingListSchema, coaImportSchema, coaSelectionSchema, coaTemplateSchema, configureBookSchema, draftActionSchema, journalSchema, linkCustomerSchema, partySchema, postJournalSchema, reportSchema, reverseJournalSchema, settlementSchema } from './validation.js';
+import { hkdConfigureSchema, hkdPostSchema, hkdVoidSchema, hkdListSchema, hkdReportSchema } from './hkd-validation.js';
 
 export const ACCOUNTING_ACTIONS = {
   info: { method: 'GET', maxBytes: 0 },
@@ -22,10 +23,24 @@ export const ACCOUNTING_ACTIONS = {
   'post-journal': { method: 'POST', maxBytes: 65536 },
   'reverse-journal': { method: 'POST', maxBytes: 65536 },
   'save-settlement': { method: 'POST', maxBytes: 65536 },
+  'hkd-info': { method: 'GET', maxBytes: 0 },
+  'hkd-configure': { method: 'POST', maxBytes: 16384 },
+  'hkd-post-entry': { method: 'POST', maxBytes: 16384 },
+  'hkd-void-entry': { method: 'POST', maxBytes: 16384 },
+  'hkd-list': { method: 'POST', maxBytes: 4096 },
+  'hkd-report': { method: 'POST', maxBytes: 4096 },
 } as const;
 
 export function validateAccountingActionInput(action: string, input: unknown): unknown {
   switch (action) {
+    case 'hkd-info':
+      if (input !== undefined) throw new ErpError('INVALID_INPUT', 'Household book info does not accept a request body.');
+      return undefined;
+    case 'hkd-configure': return parse(hkdConfigureSchema, input);
+    case 'hkd-post-entry': return parse(hkdPostSchema, input);
+    case 'hkd-void-entry': return parse(hkdVoidSchema, input);
+    case 'hkd-list': return parse(hkdListSchema, input);
+    case 'hkd-report': return parse(hkdReportSchema, input);
     case 'info':
       if (input !== undefined) throw new ErpError('INVALID_INPUT', 'Accounting info does not accept a request body.');
       return undefined;
@@ -53,9 +68,15 @@ export function validateAccountingActionInput(action: string, input: unknown): u
 export async function executeAccountingAction(service: AccountingService, action: string, input: unknown, source?: ErpAccountingSource): Promise<ApiResult<unknown>> {
   try {
     const data = validateAccountingActionInput(action, input);
-    if (source) await source.checkCurrency(action === 'configure-book', action === 'info');
+    if (source) await source.checkCurrency(action === 'configure-book' || action === 'hkd-configure', action === 'info' || action === 'hkd-info');
     let result: unknown;
     switch (action) {
+      case 'hkd-info': result = await service.hkd.info(); break;
+      case 'hkd-configure': result = await service.hkd.configure(data); break;
+      case 'hkd-post-entry': result = await service.hkd.postEntry(data); break;
+      case 'hkd-void-entry': result = await service.hkd.voidEntry(data); break;
+      case 'hkd-list': result = await service.hkd.list(data); break;
+      case 'hkd-report': result = await service.hkd.report(data); break;
       case 'info': result = await service.info(); break;
       case 'configure-book': result = await service.configureBook(data); break;
       case 'list': result = await service.list(data); break;

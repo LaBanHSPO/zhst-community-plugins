@@ -7,6 +7,8 @@ import type { ErpAccountingSource } from './erp-source.js';
 import { buildAccountingReport } from './reports.js';
 import { accountSchema, accountingGetSchema, accountingListSchema, calendarDateSchema, coaImportResultSchema, coaImportSchema, coaSelectionSchema, coaTemplateSchema, configureBookSchema, draftActionSchema, journalSchema, linkCustomerSchema, partySchema, postJournalSchema, reportSchema, reverseJournalSchema, settlementSchema } from './validation.js';
 import { accountImportClosure, accountTemplate, accountTemplates } from './coa.js';
+import { canonical, commandHash } from './commands.js';
+import { HkdService } from './hkd-service.js';
 
 const savedBookSchema = z.strictObject({
   schemaVersion: z.literal(1), currency: z.literal('VND'), minorUnits: z.literal(0),
@@ -22,19 +24,12 @@ interface SourceRow extends LineRow { postingDate: string; reference: string; re
 interface ReceiptRow { action: string; actorId: string; canonicalPayloadHash: string; journalId: string; revision: string; postedSequence: number }
 interface CoaReceiptRow { commandId: string; actorId: string; canonicalPayloadHash: string; templateId: string; templateVersion: string; resultJson: string; createdAt: string }
 
-// Preserve arrays (including their order), while sorting every object key for a command's durable identity.
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (value !== null && typeof value === 'object') return `{${Object.entries(value).filter(([, item]) => item !== undefined).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}`;
-  return JSON.stringify(value);
-}
-async function commandHash(action: string, actorId: string, input: unknown): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical({ action, actorId, input })));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
 
 export class AccountingService {
-  constructor(private readonly store: AccountingStore, private readonly actorId: string, private readonly now: () => Date = () => new Date()) {}
+  readonly hkd: HkdService;
+  constructor(private readonly store: AccountingStore, private readonly actorId: string, private readonly now: () => Date = () => new Date()) {
+    this.hkd = new HkdService(store, actorId, now);
+  }
 
   private authenticated(): void {
     if (!this.actorId) throw new ErpError('AUTH_REQUIRED', 'An authenticated administrator is required.');
@@ -218,6 +213,7 @@ export class AccountingService {
     });
   }
   private accountImportReceipt(data: CoaImportInput, hash: string): CoaImportResult | undefined {
+    if (this.store.get('SELECT 1 FROM erp_ac_hkd_commands WHERE commandId=?', data.commandId)) throw new ErpError('IDEMPOTENCY_CONFLICT', 'This command ID belongs to a different action, actor or payload.');
     if (this.store.get('SELECT 1 FROM erp_ac_commands WHERE commandId=?', data.commandId)) throw new ErpError('IDEMPOTENCY_CONFLICT', 'This command ID belongs to a different action, actor or payload.');
     const receipt = this.store.get<CoaReceiptRow>('SELECT * FROM erp_ac_coa_imports WHERE commandId=?', data.commandId);
     if (!receipt) return undefined;
@@ -447,6 +443,7 @@ export class AccountingService {
     });
   }
   private receipt(commandId: string, action: string, hash: string): FinancialResult | undefined {
+    if (this.store.get('SELECT 1 FROM erp_ac_hkd_commands WHERE commandId=?', commandId)) throw new ErpError('IDEMPOTENCY_CONFLICT', 'This command ID belongs to a different action, actor or payload.');
     if (this.store.get('SELECT 1 FROM erp_ac_coa_imports WHERE commandId=?', commandId)) throw new ErpError('IDEMPOTENCY_CONFLICT', 'This command ID belongs to a different action, actor or payload.');
     const receipt = this.store.get<ReceiptRow>('SELECT * FROM erp_ac_commands WHERE commandId=?', commandId);
     if (!receipt) return undefined;

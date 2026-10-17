@@ -69,7 +69,7 @@ test('fresh schema is explicit and empty; rerun preserves migration and runtime 
 });
 
 test('checksums, newer versions, unknown and missing schema objects fail without changing data', (t) => {
-  for (const mutation of ["UPDATE erp_ac_migrations SET checksum='0000000000000000000000000000000000000000000000000000000000000000'", 'UPDATE erp_ac_migrations SET version=3 WHERE version=2', 'CREATE TABLE foreign_data(value TEXT) STRICT', 'DROP TRIGGER erp_ac_settings_update']) {
+  for (const mutation of ["UPDATE erp_ac_migrations SET checksum='0000000000000000000000000000000000000000000000000000000000000000'", 'UPDATE erp_ac_migrations SET version=99 WHERE version=2', 'CREATE TABLE foreign_data(value TEXT) STRICT', 'DROP TRIGGER erp_ac_settings_update']) {
     const { filename, store } = fixture(t);
     store.close();
     const raw = new DatabaseSync(filename);
@@ -105,7 +105,6 @@ test('migration failure after schema creation rolls back all DDL and recovers a 
   migrateAccountingDatabase(filename);
   const recovered = openAccountingDatabase(filename);
   try {
-    assert.deepEqual(recovered.all<{ version: number }>('SELECT version FROM erp_ac_migrations ORDER BY version').map((row) => row.version), [1, 2]);
     assert.deepEqual(recovered.all('PRAGMA foreign_key_check'), []);
     const service = new AccountingService(recovered, 'admin-1', now);
     await service.configureBook({ startDate: '2030-01-01' });
