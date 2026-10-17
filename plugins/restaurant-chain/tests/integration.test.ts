@@ -1,8 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { createHmac } from "node:crypto";
 import type { D1Database, MessageBatch, Queue } from "@cloudflare/workers-types";
 import type { Miniflare } from "miniflare";
-import { createTestRuntime } from "./runtime.js";
+import { applyMigrations, createTestRuntime } from "./runtime.js";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -64,13 +63,7 @@ const invoicePayload = {
 beforeEach(async () => {
 	mf = createTestRuntime("RESTAURANT_DB");
 	db = await mf.getD1Database("RESTAURANT_DB");
-	const sql = await readFile(new URL("../migrations/0001_restaurant.sql", import.meta.url), "utf8");
-	await db.batch(
-		sql
-			.split(";")
-			.filter((statement) => statement.trim() && !statement.trim().startsWith("PRAGMA"))
-			.map((statement) => db.prepare(statement)),
-	);
+	await applyMigrations(db);
 	now = Date.parse("2026-10-10T03:00:00Z");
 	options = {
 		db,

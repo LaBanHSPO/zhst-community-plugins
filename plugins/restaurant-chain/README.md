@@ -49,6 +49,37 @@ The role selector on an administrator's screen changes the workspace view; it do
 
 EmDash administrators can configure bank accounts and legal issuers and access all branches. Branch managers cannot change those receiving or issuer settings.
 
+## Call staff and request the bill from the table
+
+While their visit is open, a guest can raise a service request from the table surface:
+**Gọi nhân viên** (a waiter) or **Yêu cầu tính tiền** (the bill). At most one open
+request of each kind exists per visit, so repeated taps do not flood the floor. Floor,
+cashier and manager roles see the open queue in the workspace and mark a request
+**Đã xử lý**; the guest status shows an open request until it is handled. Kitchen roles
+do not receive these requests. A closed or expired visit rejects new requests.
+
+## Open a shift and settle a bill by hand
+
+The dine-in MVP settles tables without any external provider. A cashier or manager
+opens one shift per branch (**Ca làm việc → Mở ca**), recording the opening float.
+Recording cash requires an open shift; bank transfers do not.
+
+Freezing a bill (**Chốt bill**) snapshots every confirmed, served and still-unbilled
+order of one visit into a single payable amount using one method. Freezing is refused
+while any request is pending or a confirmed dish is unserved, and a table can hold only
+one open bill. Once frozen, the orders are locked: they cannot be voided, and additional
+guest requests start a new round with its own bill after the first is settled.
+
+Settlement records the method (`cash` or `bank_transfer`), an optional transfer
+reference, and the operator. Cash is counted toward the shift drawer; the transfer rule
+is that a cashier confirms a bank transfer only after checking the money actually
+received. Settling does not free the table — staff still close the visit. Closing a
+shift (**Chốt ca**) compares the counted cash against the expected drawer (opening float
+plus settled cash) and stores the variance and note.
+
+The SePay QR flow below remains available for operators who configure a provider; it is
+independent of manual bills and is not required for the MVP.
+
 ## Confirm payment
 
 Generating or displaying a QR does not mark a bill paid. The host authenticates the SePay webhook, saves the inbox receipt and processing job in one D1 batch, then acknowledges it. Queue processing verifies incoming direction, context/environment, receiving bank/account/sub-account, reference, amount, and attempt status before allocating money.

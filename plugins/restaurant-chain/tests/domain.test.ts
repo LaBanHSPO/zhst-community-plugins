@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { Miniflare } from "miniflare";
-import { createTestRuntime } from "./runtime.js";
+import { applyMigrations, createTestRuntime } from "./runtime.js";
 import { DomainError, RestaurantService } from "../src/domain/service.js";
 import type {
 	ActionInputs,
@@ -16,10 +15,6 @@ import type {
 	Workspace,
 } from "../src/domain/types.js";
 
-const migration = await readFile(
-	new URL("../migrations/0001_restaurant.sql", import.meta.url),
-	"utf8",
-);
 let mf: Miniflare;
 let db: D1Database;
 let admin: RestaurantService;
@@ -108,13 +103,7 @@ async function bill(quantity = 2): Promise<Payment> {
 beforeEach(async () => {
 	mf = createTestRuntime("RESTAURANT_DB");
 	db = await mf.getD1Database("RESTAURANT_DB");
-	await db.batch(
-		migration
-			.split(";")
-			.map((sql) => sql.trim())
-			.filter((sql) => sql && !sql.startsWith("PRAGMA"))
-			.map((sql) => db.prepare(sql)),
-	);
+	await applyMigrations(db);
 	admin = new RestaurantService(db, { id: "admin", administrator: true });
 	guest = new RestaurantService(db, null);
 	branchId = (
@@ -143,13 +132,7 @@ afterEach(async () => {
 
 describe("D1 restaurant domain", () => {
 	it("applies the migration repeatedly without losing records", async () => {
-		await db.batch(
-			migration
-				.split(";")
-				.map((sql) => sql.trim())
-				.filter((sql) => sql && !sql.startsWith("PRAGMA"))
-				.map((sql) => db.prepare(sql)),
-		);
+		await applyMigrations(db);
 		assert.equal((await workspace()).tables[0]!.id, tableId);
 	});
 
@@ -1053,6 +1036,244 @@ describe("D1 restaurant domain", () => {
 		assert.deepEqual(
 			(await workspace()).exceptions.map((entry) => entry.id),
 			["historical-api", "historical-receipt"],
+		);
+	});
+
+	it("opens a shift, bills a table and reconciles counted cash on close", async () => {
+		await command(admin, "open-shift", { branchId, openingFloat: 100000 });
+		const opened = (await workspace()).shift!;
+		assert.equal(opened.status, "open");
+		assert.equal(opened.openingFloat, 100000);
+		await assert.rejects(command(admin, "open-shift", { branchId, openingFloat: 0 }), {
+			code: "CONFLICT",
+		});
+		await serve(2);
+		let visit = (await workspace()).visits.find((entry) => entry.id === session.visit.id)!;
+		const bill = await command(admin, "freeze-bill", {
+			branchId,
+			id: visit.id,
+			expectedVersion: visit.version,
+		});
+		visit = (await workspace()).visits.find((entry) => entry.id === session.visit.id)!;
+		assert.equal(visit.status, "billing");
+		const frozen = (await workspace()).bills.find((entry) => entry.id === bill.id)!;
+		assert.equal(frozen.status, "open");
+		assert.equal(frozen.total, 120000);
+		assert.equal(frozen.shiftId, opened.id);
+		assert.equal(frozen.lines[0]!.name, "Phở");
+		await assert.rejects(
+			command(admin, "settle-bill", {
+				branchId,
+				id: bill.id,
+				expectedVersion: 2,
+				method: "cash",
+				reference: "",
+			}),
+			{ code: "CONFLICT" },
+		);
+		await command(admin, "settle-bill", {
+			branchId,
+			id: bill.id,
+			expectedVersion: 1,
+			method: "cash",
+			reference: "",
+		});
+		const settled = (await workspace()).bills.find((entry) => entry.id === bill.id)!;
+		assert.equal(settled.status, "settled");
+		assert.equal(settled.method, "cash");
+		assert.equal(
+			(await workspace()).visits.find((entry) => entry.id === session.visit.id)!.status,
+			"paid",
+		);
+		const shift = (await workspace()).shift!;
+		const closed = (await command(admin, "close-shift", {
+			branchId,
+			id: shift.id,
+			expectedVersion: shift.version,
+			countedCash: 215000,
+			note: "Thiếu 5.000",
+		})) as unknown as { expectedCash: number; variance: number };
+		assert.equal(closed.expectedCash, 220000);
+		assert.equal(closed.variance, -5000);
+		const history = (await workspace()).shifts.find((entry) => entry.id === shift.id)!;
+		assert.equal(history.status, "closed");
+		assert.equal(history.countedCash, 215000);
+		assert.equal((await workspace()).shift, null);
+	});
+
+	it("requires an open shift for cash and settles a later round as a new bill", async () => {
+		await serve(1);
+		let visit = (await workspace()).visits.find((entry) => entry.id === session.visit.id)!;
+		const first = await command(admin, "freeze-bill", {
+			branchId,
+			id: visit.id,
+			expectedVersion: visit.version,
+		});
+		await assert.rejects(
+			command(admin, "settle-bill", {
+				branchId,
+				id: first.id,
+				expectedVersion: 1,
+				method: "cash",
+				reference: "",
+			}),
+			{ code: "SHIFT_REQUIRED" },
+		);
+		await command(admin, "settle-bill", {
+			branchId,
+			id: first.id,
+			expectedVersion: 1,
+			method: "bank_transfer",
+			reference: "FT-123",
+		});
+		const firstBill = (await workspace()).bills.find((entry) => entry.id === first.id)!;
+		assert.equal(firstBill.shiftId, null);
+		assert.equal(firstBill.reference, "FT-123");
+		assert.equal(
+			(await workspace()).visits.find((entry) => entry.id === session.visit.id)!.status,
+			"paid",
+		);
+		const extra = await submit(1);
+		assert.equal(
+			(await workspace()).visits.find((entry) => entry.id === session.visit.id)!.status,
+			"open",
+		);
+		await command(admin, "confirm-order", { branchId, id: extra.id, expectedVersion: 1 });
+		const line = (await workspace()).orders.find((entry) => entry.id === extra.id)!.lines[0]!;
+		for (const [index, status] of (["preparing", "ready", "served"] as const).entries())
+			await command(admin, "kitchen-transition", {
+				branchId,
+				id: line.id,
+				expectedVersion: index + 1,
+				status,
+			});
+		visit = (await workspace()).visits.find((entry) => entry.id === session.visit.id)!;
+		const second = await command(admin, "freeze-bill", {
+			branchId,
+			id: visit.id,
+			expectedVersion: visit.version,
+		});
+		assert.notEqual(second.id, first.id);
+		const secondBill = (await workspace()).bills.find((entry) => entry.id === second.id)!;
+		assert.equal(secondBill.status, "open");
+		assert.equal(secondBill.total, 60000);
+		assert.equal((await workspace()).bills.find((entry) => entry.id === first.id)!.method, "bank_transfer");
+	});
+
+	it("locks billed orders against voiding and refuses to freeze unresolved work", async () => {
+		const pending = await submit(1);
+		let visit = (await workspace()).visits.find((entry) => entry.id === session.visit.id)!;
+		await assert.rejects(
+			command(admin, "freeze-bill", { branchId, id: visit.id, expectedVersion: visit.version }),
+			{ code: "PENDING_ORDERS" },
+		);
+		await command(admin, "open-shift", { branchId, openingFloat: 0 });
+		await command(admin, "confirm-order", {
+			branchId,
+			id: pending.id,
+			expectedVersion: 1,
+		});
+		visit = (await workspace()).visits.find((entry) => entry.id === session.visit.id)!;
+		await assert.rejects(
+			command(admin, "freeze-bill", { branchId, id: visit.id, expectedVersion: visit.version }),
+			{ code: "UNSERVED_DISHES" },
+		);
+		const line = (await workspace()).orders.find((entry) => entry.id === pending.id)!.lines[0]!;
+		for (const [index, status] of (["preparing", "ready", "served"] as const).entries())
+			await command(admin, "kitchen-transition", {
+				branchId,
+				id: line.id,
+				expectedVersion: index + 1,
+				status,
+			});
+		visit = (await workspace()).visits.find((entry) => entry.id === session.visit.id)!;
+		const frozen = await command(admin, "freeze-bill", {
+			branchId,
+			id: visit.id,
+			expectedVersion: visit.version,
+		});
+		await command(admin, "settle-bill", {
+			branchId,
+			id: frozen.id,
+			expectedVersion: 1,
+			method: "cash",
+			reference: "",
+		});
+		await submit(1);
+		const billed = (await workspace()).orders.find((entry) => entry.id === pending.id)!;
+		assert.equal(billed.billId, frozen.id);
+		await assert.rejects(
+			command(admin, "void-order", {
+				branchId,
+				id: pending.id,
+				expectedVersion: billed.version,
+				reason: "Thử hủy sau khi thu",
+			}),
+			{ code: "CONFLICT" },
+		);
+	});
+
+	it("restricts shifts and manual billing to cashier or manager roles", async () => {
+		await command(admin, "save-member", { branchId, userId: "floor-user", role: "floor" });
+		const staff = new RestaurantService(db, { id: "floor-user", administrator: false });
+		await assert.rejects(command(staff, "open-shift", { branchId, openingFloat: 0 }), {
+			code: "FORBIDDEN",
+		});
+		await assert.rejects(
+			command(staff, "freeze-bill", { branchId, id: session.visit.id, expectedVersion: 1 }),
+			{ code: "FORBIDDEN" },
+		);
+	});
+
+	it("records guest service requests, deduplicates them and lets staff handle them", async () => {
+		const request = await command(guest, "call-service", {
+			token: session.token,
+			kind: "waiter",
+			note: "",
+		});
+		await assert.rejects(
+			command(guest, "call-service", { token: session.token, kind: "waiter", note: "" }),
+			{ code: "ALREADY_REQUESTED" },
+		);
+		const status = (await guest.execute("guest-status", { token: session.token })) as GuestStatus;
+		assert.equal(status.requests.length, 1);
+		assert.equal(status.requests[0]!.kind, "waiter");
+		assert.equal(
+			(await workspace()).serviceRequests.filter((entry) => entry.status === "open").length,
+			1,
+		);
+		await command(admin, "attend-request", { branchId, id: request.id, expectedVersion: 1 });
+		assert.equal(
+			(await workspace()).serviceRequests.filter((entry) => entry.status === "open").length,
+			0,
+		);
+		const again = await command(guest, "call-service", {
+			token: session.token,
+			kind: "waiter",
+			note: "",
+		});
+		assert.notEqual(again.id, request.id);
+	});
+
+	it("scopes guest requests to the visit and restricts handling to floor roles", async () => {
+		const request = await command(guest, "call-service", {
+			token: session.token,
+			kind: "bill",
+			note: "Xin hóa đơn",
+		});
+		await command(admin, "save-member", { branchId, userId: "cook", role: "kitchen" });
+		const cook = new RestaurantService(db, { id: "cook", administrator: false });
+		await assert.rejects(
+			command(cook, "attend-request", { branchId, id: request.id, expectedVersion: 1 }),
+			{ code: "FORBIDDEN" },
+		);
+		await assert.rejects(
+			command(admin, "attend-request", {
+				branchId,
+				id: "other-branch-request",
+				expectedVersion: 1,
+			}),
+			{ code: "NOT_FOUND" },
 		);
 	});
 });

@@ -15,6 +15,10 @@ const empty: Workspace = {
 	invoices: [],
 	jobs: [],
 	exceptions: [],
+	shift: null,
+	shifts: [],
+	bills: [],
+	serviceRequests: [],
 	nextCursor: "next",
 };
 

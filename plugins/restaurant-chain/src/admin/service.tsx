@@ -181,6 +181,19 @@ function TableDetail({
 		order.lines.map((line) => ({ order, line })),
 	);
 	const total = orders.reduce((sum, order) => sum + order.total, 0);
+	const visit = data.visits.find((candidate) => candidate.id === visitId);
+	const openBill = data.bills.find((bill) => bill.visitId === visitId && bill.status === "open");
+	const canBill = ["manager", "administrator", "cashier"].includes(data.role);
+	const confirmedUnbilled = orders.some(
+		(order) => order.status === "confirmed" && !order.billId,
+	);
+	const canFreeze =
+		canBill &&
+		!!visit &&
+		!openBill &&
+		confirmedUnbilled &&
+		visit.pendingCount === 0 &&
+		visit.unsettledCount === 0;
 	const reached = (status: (typeof kitchenFlow)[number]) =>
 		lines.length > 0 &&
 		lines.every(
@@ -289,6 +302,27 @@ function TableDetail({
 							onDone={onDone}
 						/>
 					)}
+					{visitId && canBill && openBill && (
+						<p className="rc-warning">
+							{t("openBills")}: {money(openBill.total, locale)}
+						</p>
+					)}
+					{visitId && canBill && !openBill && (
+						<>
+							<Action
+								action="freeze-bill"
+								label="freezeBill"
+								disabled={!canFreeze}
+								input={{
+									branchId: data.branch.id,
+									id: visitId,
+									expectedVersion: visit?.version,
+								}}
+								onDone={onDone}
+							/>
+							<p className="rc-muted">{t("freezeHint")}</p>
+						</>
+					)}
 					<p className="rc-muted">{t("paymentWarning")}</p>
 				</div>
 			</div>
@@ -322,6 +356,7 @@ export function Floor({
 			),
 		[data.orders],
 	);
+	const openRequests = data.serviceRequests.filter((request) => request.status === "open");
 	function stateFor(tableId: string) {
 		const visit = openVisits.find((candidate) => candidate.tableId === tableId);
 		return visit ? visit.status : "closed";
@@ -405,7 +440,31 @@ export function Floor({
 							</span>
 						)}
 					</header>
-					{orders.length === 0 && <p className="rc-empty">{t("empty")}</p>}
+					{openRequests.length > 0 && (
+						<div className="rc-service-rail">
+							{openRequests.map((request) => {
+								const visit = data.visits.find((candidate) => candidate.id === request.visitId);
+								const table = data.tables.find((candidate) => candidate.id === visit?.tableId);
+								return (
+									<article className="rc-service-card" key={request.id}>
+										<div>
+											<span className="rc-service-kind">
+												{t(request.kind === "waiter" ? "callWaiter" : "requestBill")}
+											</span>
+											<small className="rc-muted">{table?.name ?? request.visitId.slice(-6)}</small>
+										</div>
+										<Action
+											action="attend-request"
+											label="attendRequest"
+											input={{ branchId, id: request.id, expectedVersion: request.version }}
+											onDone={onDone}
+										/>
+									</article>
+								);
+							})}
+						</div>
+					)}
+					{orders.length === 0 && openRequests.length === 0 && <p className="rc-empty">{t("empty")}</p>}
 					<div className="rc-rail">
 						{orders.map((order) => {
 							const visit = data.visits.find((candidate) => candidate.id === order.visitId);

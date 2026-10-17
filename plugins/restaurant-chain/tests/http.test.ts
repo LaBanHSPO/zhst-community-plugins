@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
-import { createTestRuntime } from "./runtime.js";
+import { applyMigrations, createTestRuntime } from "./runtime.js";
 import { handleRestaurantRequest } from "../src/http.js";
 import type { IntegrationOptions } from "../src/integrations/index.js";
 
@@ -11,11 +10,7 @@ let options: IntegrationOptions;
 before(async () => {
 	runtime = createTestRuntime("DB");
 	const db = await runtime.getD1Database("DB");
-	const migration = await readFile(
-		new URL("../migrations/0001_restaurant.sql", import.meta.url),
-		"utf8",
-	);
-	await db.exec(migration);
+	await applyMigrations(db);
 	options = { db, contexts: {} };
 });
 after(async () => {

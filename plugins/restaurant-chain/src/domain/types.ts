@@ -2,6 +2,22 @@ export type Role = "manager" | "floor" | "kitchen" | "cashier" | "accountant";
 export type Actor = { id: string; administrator: boolean };
 export type Environment = "sandbox" | "live";
 export type QrMode = "direct" | "virtual" | "memo";
+export type ShiftStatus = "open" | "closed";
+export type BillMethod = "cash" | "bank_transfer";
+export type BillStatus = "open" | "settled" | "void";
+export type ServiceKind = "waiter" | "bill";
+export interface ServiceRequest {
+	id: string;
+	branchId: string;
+	visitId: string;
+	kind: ServiceKind;
+	status: "open" | "done";
+	note: string;
+	createdAt: number;
+	doneAt: number | null;
+	doneBy: string | null;
+	version: number;
+}
 export interface Issuer {
 	name: string;
 	taxCode: string;
@@ -46,6 +62,20 @@ export interface Table {
 	id: string;
 	name: string;
 	token: string;
+	version: number;
+}
+export interface Shift {
+	id: string;
+	status: ShiftStatus;
+	openedBy: string | null;
+	openedAt: number;
+	closedBy: string | null;
+	closedAt: number | null;
+	openingFloat: number;
+	expectedCash: number | null;
+	countedCash: number | null;
+	variance: number | null;
+	note: string;
 	version: number;
 }
 export interface Visit {
@@ -96,6 +126,33 @@ export interface Order {
 	total: number;
 	version: number;
 	createdAt: number;
+	billId: string | null;
+}
+export interface BillLine {
+	id: string;
+	billId: string;
+	orderId: string;
+	name: string;
+	quantity: number;
+	unitPrice: number;
+	taxRate: number;
+	total: number;
+}
+export interface Bill {
+	id: string;
+	branchId: string;
+	visitId: string;
+	shiftId: string | null;
+	status: BillStatus;
+	method: BillMethod | null;
+	reference: string | null;
+	total: number;
+	createdBy: string | null;
+	createdAt: number;
+	settledBy: string | null;
+	settledAt: number | null;
+	version: number;
+	lines: BillLine[];
 }
 export interface Payment {
 	id: string;
@@ -167,6 +224,10 @@ export interface Workspace {
 	invoices: Invoice[];
 	jobs: Job[];
 	exceptions: PaymentException[];
+	shift: Shift | null;
+	shifts: Shift[];
+	bills: Bill[];
+	serviceRequests: ServiceRequest[];
 	nextCursor: string | null;
 }
 export interface GuestSession {
@@ -186,6 +247,7 @@ export interface GuestStatus {
 	visit: Visit;
 	orders: Order[];
 	total: number;
+	requests: ServiceRequest[];
 	nextCursor: string | null;
 }
 export interface CommandResult {
@@ -246,6 +308,12 @@ export interface ActionInputs {
 	};
 	"open-visit": Command & { tableId: string; expectedVersion: number };
 	"close-visit": RevisionCommand;
+	"open-shift": Command & { openingFloat: number };
+	"close-shift": RevisionCommand & { countedCash: number; note: string };
+	"freeze-bill": RevisionCommand;
+	"settle-bill": RevisionCommand & { method: BillMethod; reference: string };
+	"call-service": { commandId: string; token: string; kind: ServiceKind; note: string };
+	"attend-request": RevisionCommand;
 	"join-table": { commandId: string; tableToken: string };
 	menu: { token: string; cursor?: string; limit?: number };
 	"guest-status": { token: string; cursor?: string; limit?: number };

@@ -10,6 +10,7 @@ import {
 	IconOrders,
 	IconRefresh,
 	IconSettings,
+	IconShift,
 	RestaurantLogo,
 } from "./brand.js";
 import { request } from "./client.js";
@@ -18,25 +19,27 @@ import { Exports, Finance } from "./finance.js";
 import { LanguageSelect, RestaurantLocale, useText } from "./locale.js";
 import type { TextKey } from "./locale.js";
 import { Floor, Kitchen } from "./service.js";
+import { Shift } from "./shift.js";
 import { Choice, Failure } from "./shared.js";
 import { mergeWorkspacePage } from "./workspace-data.js";
 import "./styles.css";
 
-type Tab = "tables" | "kitchen" | "payments" | "exports" | "configuration";
+type Tab = "tables" | "kitchen" | "payments" | "shift" | "exports" | "configuration";
 type FloorView = "floor" | "list";
 const roles: Role[] = ["manager", "floor", "kitchen", "cashier", "accountant"];
 const roleTabs: Record<Role | "administrator", Tab[]> = {
-	administrator: ["tables", "kitchen", "payments", "exports", "configuration"],
-	manager: ["tables", "kitchen", "payments", "exports", "configuration"],
+	administrator: ["tables", "kitchen", "payments", "shift", "exports", "configuration"],
+	manager: ["tables", "kitchen", "payments", "shift", "exports", "configuration"],
 	floor: ["tables", "kitchen"],
 	kitchen: ["kitchen"],
-	cashier: ["tables", "kitchen", "payments"],
-	accountant: ["payments", "exports"],
+	cashier: ["tables", "kitchen", "payments", "shift"],
+	accountant: ["shift", "payments", "exports"],
 };
 const navMeta: Record<Tab, { Icon: typeof IconFloor; key: TextKey }> = {
 	tables: { Icon: IconFloor, key: "navFloor" },
 	kitchen: { Icon: IconOrders, key: "navOrders" },
 	payments: { Icon: IconCard, key: "navPayments" },
+	shift: { Icon: IconShift, key: "navShift" },
 	exports: { Icon: IconExport, key: "navExports" },
 	configuration: { Icon: IconSettings, key: "navSettings" },
 };
@@ -132,7 +135,9 @@ function Workspace() {
 	const tabs = roleTabs[effectiveRole];
 	const currentTab = tabs.includes(tab) ? tab : tabs[0];
 	const branchName = info?.branches.find((branch) => branch.id === branchId)?.name ?? "";
-	const pending = data?.orders.filter((order) => order.status === "pending").length ?? 0;
+	const pending =
+		(data?.orders.filter((order) => order.status === "pending").length ?? 0) +
+		(data?.serviceRequests.filter((request) => request.status === "open").length ?? 0);
 	function allowNavigate() {
 		return !dirty.current || window.confirm(t("unsaved"));
 	}
@@ -267,6 +272,7 @@ function Workspace() {
 								)}
 								{currentTab === "kitchen" && <Kitchen data={data} onDone={refresh} />}
 								{currentTab === "payments" && <Finance data={data} onDone={refresh} />}
+								{currentTab === "shift" && <Shift data={data} onDone={refresh} />}
 								{currentTab === "exports" && <Exports key={branchId} branchId={branchId} />}
 							</div>
 						)}
