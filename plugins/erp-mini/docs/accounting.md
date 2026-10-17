@@ -1,6 +1,6 @@
 # Đặc tả accounting nội bộ — ERP mini
 
-Contract nghiệp vụ cho module accounting nội bộ VND trên Node SQLite hoặc Cloudflare SQLite Durable Objects. Đọc cùng [lưu trữ và vận hành](accounting-storage.md); nguồn thực thi nằm trong [`src/accounting/`](../src/accounting/) và UI [`src/admin/accounting/`](../src/admin/accounting/). Các tiêu chí B01–B21 bên dưới là yêu cầu chấp nhận, không phải tuyên bố tất cả cổng runtime/release đã được kiểm tra.
+Contract nghiệp vụ cho module accounting nội bộ VND trên Node SQLite hoặc Cloudflare SQLite Durable Objects. Đọc cùng [lưu trữ và vận hành](accounting-storage.md); nguồn thực thi nằm trong [`src/accounting/`](../src/accounting/) và UI [`src/admin/accounting/`](../src/admin/accounting/). Sổ kép doanh nghiệp bên dưới và [Sổ HKD](#hkd-tt1522025) là hai luồng độc lập. Các tiêu chí B01–B21 bên dưới là yêu cầu chấp nhận, không phải tuyên bố tất cả cổng runtime/release đã được kiểm tra.
 
 ## 1. Outcome và nguồn yêu cầu
 
@@ -18,7 +18,7 @@ Các lựa chọn bên dưới là **quyết định phạm vi accounting nội 
 - EmDash vẫn sở hữu danh tính/session/passkey. Mọi đọc/ghi/report accounting chỉ cho người có `plugins:manage`; giữ admin-only hiện hữu, không thêm quy trình duyệt nhiều cấp.
 - Scope: hệ thống tài khoản; khách hàng/nhà cung cấp kế toán; số dư đầu kỳ; bút toán thủ công; thu/chi thanh toán công nợ từng phần; đảo; nhật ký/sổ cái/bảng cân đối phát sinh/số dư tiền/công nợ.
 - Runtime: Node SQLite local/standalone hoặc SQLite Durable Object riêng trên Cloudflare. CRM/sales vẫn dùng storage hiện hữu; accounting không dùng D1/CAS thay transaction. Chỉ installation VND được bật accounting; USD hiện hữu không bị đổi currency. Local tests không cần cloud credentials và không chứng minh deployed-Worker acceptance.
-- Non-goals: VAT/tax, hóa đơn điện tử, invoice pháp định, tồn kho/giá vốn, ngoại tệ, payroll, tự ghi sổ từ order, hợp nhất công ty, fiscal closing và báo cáo pháp định.
+- Non-goals của sổ kép doanh nghiệp: VAT/tax, hóa đơn điện tử, invoice pháp định, tồn kho/giá vốn, ngoại tệ, payroll, tự ghi sổ từ order, hợp nhất công ty, fiscal closing và báo cáo pháp định. Sổ thuế và kho bình quân kỳ HKD có phạm vi riêng tại [HKD](#hkd-tt1522025), không bổ sung các module này cho sổ doanh nghiệp.
 - Thu/trả vượt nợ, ứng trước, bù trừ công nợ và nghiệp vụ giảm nợ không qua đảo chưa nằm trong luồng thu/chi đã chọn; lệnh ngoài phạm vi phải bị từ chối rõ, không tự biến thành doanh thu/chi phí. Bút toán tổng quát không có công nợ vẫn dùng được.
 - Người vận hành có thể thiết lập tài khoản thủ công hoặc chọn **TT133/2016** / **TT99/2025** từ bộ mẫu đóng gói, chọn toàn bộ hoặc subset rồi xem trước và nhập. Không chọn chế độ ngầm từ ngày máy/ngày bắt đầu sổ, không seed lúc install/startup và không chuyển đổi chế độ kế toán của doanh nghiệp.
 
@@ -59,7 +59,7 @@ Purpose của lá: 111/lá dưới111 → cash; 112/lá dưới112 → bank; 131
 
 Danh mục ngoại tệ và ngành nghề vẫn đầy đủ. Sổ hiện chỉ VND: chỉ ghi giá trị quy đổi, không nguyên tệ/tỷ giá/tự đánh giá lại. 131/331 dùng AR/AP hiện có: chiều tăng mở khoản, chiều giảm cần allocation; **không** bổ sung ứng trước/overpayment chỉ vì import. Import không tạo bút toán, số dư đầu kỳ, tài sản/kho/thuế/BCTC và không chứng nhận tuân thủ đầy đủ TT133/TT99.
 
-TT200 không là mẫu cho kỳ mới2026; giữ ngoại lệ cổ phần hóa tại khoản2 Điều31 TT99, không tuyên bố bãi bỏ mọi nội dung vô điều kiện. TT132/TT58, ngân hàng, hành chính sự nghiệp và hộ kinh doanh ngoài hai bộ mẫu. TT58 hiệu lực01/07/2026, áp dụng năm tài chính bắt đầu từ/sau01/07/2026; TT132 hết hiệu lực từ ngày đó. TT58 quy định sổ theo phương pháp thuế, không là catalog ghi sổ kép; DNSN có thể chọn chế độ SME nhất quán trong năm theo Điều4.3.
+TT200 không là mẫu cho kỳ mới2026; giữ ngoại lệ cổ phần hóa tại khoản2 Điều31 TT99, không tuyên bố bãi bỏ mọi nội dung vô điều kiện. TT132/TT58, ngân hàng, hành chính sự nghiệp và hộ kinh doanh ngoài hai bộ mẫu; hộ/cá nhân kinh doanh được hỗ trợ qua [Sổ HKD riêng](#hkd-tt1522025), không import COA doanh nghiệp để thay thế. TT58 hiệu lực01/07/2026, áp dụng năm tài chính bắt đầu từ/sau01/07/2026; TT132 hết hiệu lực từ ngày đó. TT58 quy định sổ theo phương pháp thuế, không là catalog ghi sổ kép; DNSN có thể chọn chế độ SME nhất quán trong năm theo Điều4.3.
 
 Nguồn: [TT133 Công báo](https://congbao.chinhphu.vn/van-ban/thong-tu-so-133-2016-tt-btc-21048/15524.htm), [Phụ lục 1 chính thức, PDF trang76–81](https://congbaocdn.chinhphu.vn/CongBaoCP/VanBan/2016/8/21048/15524-1-1332016tt-btc15581pdf), [TT46 Chính phủ](https://chinhphu.vn/?docid=214192&pageid=27160), [TT99 Công báo](https://congbao.chinhphu.vn/van-ban/thong-tu-so-99-2025-tt-btc-46529.htm), [Phụ lục II phần A, PDF trang33–43](https://congbaocdn.chinhphu.vn/CongBaoCP/VanBan/2025/10/46529/59634-1-20251565-156699-2025-tt-btc.pdf), [TT58 Công báo](https://congbao.chinhphu.vn/van-ban/thong-tu-so-58-2026-tt-btc-469663.htm).
 
@@ -173,6 +173,57 @@ Mọi report chỉ đọc posted lines, bao gồm original **và** reversal đú
 - Không reset `.local`, credential hoặc key installation người dùng đã kiểm tra. Phát triển/tests dùng DB synthetic tách biệt.
 - Backup/restore phải giữ accounting SQLite resource, EmDash DB, media và key cùng installation; xem thiết kế storage cho paired capture và recovery theo từng runtime. Không triển khai/publish từ nhiệm vụ implementation.
 - Internal ledger không tự động đáp ứng chế độ kế toán/thuế Việt Nam. Tài liệu ERPNext là reference behavior, không copy GPL source vào package MIT.
+
+## HKD (TT152/2025)
+
+**Sổ HKD** là workspace VND riêng cho hộ/cá nhân kinh doanh, không cần thiết lập sổ kép hoặc COA doanh nghiệp, không tự lấy nghiệp vụ từ CRM. TT152/2025/TT-BTC ngày 31/12/2025 có hiệu lực 01/01/2026, thay TT88/2021; đây là hướng dẫn sổ HKD, không thay TT133/TT99 và không phải một bộ tài khoản để import. Nguồn pháp lý: [metadata Chính phủ](https://vanban.chinhphu.vn/?docid=216533&pageid=27160), [PDF ký chính thức](https://datafiles.chinhphu.vn/cpp/files/vbpq/2026/01/152-btc.pdf), [bản toàn văn tra cứu](https://luatvietnam.vn/ke-toan/thong-tu-152-2025-tt-btc-huong-dan-ke-toan-cho-ho-kinh-doanh-ca-nhan-kinh-doanh-423164-d1.html).
+
+### Chọn phương pháp và thao tác
+
+Người vận hành tự xác định phương pháp, căn cứ tính thuế, tỷ lệ và chi phí được trừ; phần mềm không suy ngưỡng doanh thu, tự chuyển chế độ, nộp tờ khai hoặc chứng nhận tuân thủ pháp lý/nhà cung cấp.
+
+| Phương pháp hồ sơ năm | Sổ sử dụng |
+| --- | --- |
+| Miễn thuế (`exempt`) | S1a-HKD — doanh thu |
+| Thuế theo doanh thu (`revenue`) | S2a-HKD — doanh thu bán hàng hóa, dịch vụ |
+| Thuế theo thu nhập (`income`) | S2b-HKD — doanh thu; S2c-HKD — doanh thu, chi phí; S2d-HKD — vật liệu, dụng cụ, sản phẩm, hàng hóa; S2e-HKD — tiền |
+| Có thuế khác, tùy chọn cho từng phương pháp | S3a-HKD — nghĩa vụ thuế khác |
+
+1. Mở **Sổ HKD → Thiết lập năm mới**: chọn rõ năm 2026–2100, danh tính hộ/người đại diện, ngày bắt đầu trong năm, phương pháp và kỳ tháng/quý/năm. Chỉ phương pháp thu nhập khai thuế suất TNCN; chọn thuế khác nếu cần S3a. Hồ sơ năm bất biến: kiểm tra trước khi xác nhận, không dùng thiết lập năm mới để sửa hồ sơ cũ.
+2. Chọn đúng hồ sơ năm → **Ghi nghiệp vụ**: nhập chứng từ doanh thu, chi phí, kho, tiền hoặc thuế phù hợp. Tiền là đồng nguyên; lượng HKD cho phép tối đa sáu chữ số thập phân, khác lượng nguyên của CRM. Với kho/tiền, khai đầu kỳ riêng cho từng mặt hàng/quỹ tại ngày bắt đầu, **kể cả bằng 0**, trước phát sinh. Mỗi năm khai lại có đối chiếu; không tự chuyển số dư năm trước.
+3. **Ghi sổ** là ghi ngay, không có draft có thể sửa. Sai sót: trong **Nghiệp vụ đã ghi**, chọn **Hủy với lý do**, giữ nguyên chứng từ và sự kiện hủy, rồi ghi nghiệp vụ đúng mới; không sửa/xóa lịch sử hoặc hồ sơ. Hủy/ghi lùi ngày có thể bị chặn nếu làm âm lượng kho hoặc quỹ ở một thời điểm.
+4. **Xem / xuất sổ**: chọn sổ và kỳ chuẩn đã thiết lập. Danh sách và báo cáo phân trang giữ cùng ảnh chụp; **Trang trước** không tự lấy dữ liệu mới. Dùng **Làm mới ảnh chụp…** để đối chiếu sau phát sinh/hủy mới.
+5. Xuất CSV hoặc in từ báo cáo đã chọn để lấy **toàn bộ trang cùng ảnh chụp**, không chỉ trang đang xem, cùng tổng, danh tính, ngày lập và phần chữ ký. CSV bảo vệ ô văn bản khỏi công thức; bản in tách khỏi khung admin để tránh cắt nội dung. Người vận hành vẫn phải kiểm tra bản xuất/in trước khi lưu hoặc ký.
+
+Các action dưới `/api/erp-mini/accounting/` dùng cùng session `plugins:manage`, VND, plugin-enabled và POST same-origin/`X-EmDash-Request: 1` guards như sổ doanh nghiệp; không nhận actor từ body.
+
+| Action | Method / byte cap | Input chính |
+| --- | --- | --- |
+| `hkd-info` | GET / 0 | Không body; trả các hồ sơ năm |
+| `hkd-configure` | POST / 16384 | `commandId` và chính sách/danh tính năm |
+| `hkd-post-entry` | POST / 16384 | `commandId`, `year`, `installationId`, `revision`, `entry` |
+| `hkd-void-entry` | POST / 16384 | Cùng command/profile scope, `id`, `reason` tối đa 2000 ký tự |
+| `hkd-list` | POST / 4096 | `year`, `cursor?` |
+| `hkd-report` | POST / 4096 | `year`, `book`, `period`, `cursor?` |
+
+Cursor ràng buộc hồ sơ/bộ lọc và mốc sự kiện; mỗi trang tối đa 25 dòng, tổng hợp là toàn kỳ. HTTP 200 vẫn cần kiểm envelope nghiệp vụ; giữ nguyên `commandId` và payload khi chưa xác nhận kết quả.
+
+### Căn cứ tính và đối chiếu
+
+- Thuế GTGT/TNCN theo doanh thu gom căn cứ **cả kỳ** theo ngành/hoạt động đã chuẩn hóa và tỷ lệ, làm tròn một lần rồi phân bổ lũy kế xuống dòng; không cộng các số thuế đã làm tròn độc lập từng chứng từ. S3a cộng chính xác thành phần phần trăm/tuyệt đối/hỗn hợp áp dụng rồi làm tròn một lần mỗi nghĩa vụ. Tính trung gian dùng số nguyên chính xác (`BigInt`); số hiển thị không là căn cứ để tự cộng lại bằng số thực.
+- S1a chỉ tổng hợp doanh thu, không trình bày nghĩa vụ GTGT/TNCN bằng 0 thay cho “không áp dụng”. S2b tổng hợp GTGT; thuế TNCN của phương pháp thu nhập nằm ở S2c, không phải một tổng TNCN bằng 0 trong S2b.
+- S2d dùng **bình quân gia quyền định kỳ**: đầu kỳ cộng **tất cả nhập trong kỳ**, không bình quân di động theo từng lần xuất; nối số dư các kỳ chuẩn trước đó. Nhập mới, nhập lùi ngày hoặc hủy nhập có thể định giá lại xuất của kỳ hiện tại và các kỳ sau. Phân bổ đồng lũy kế giữ hết lượng thì hết đúng giá trị. Chặn âm lượng theo trình tự thời gian không đồng nghĩa chặn giá trị kho tạm âm trong kỳ định giá này.
+- Xuất kho **không tự sinh chi phí được trừ S2c**. Người vận hành khai riêng doanh thu tính thu nhập, chi phí và phần được trừ theo căn cứ của mình; có sổ kho/thuế không đồng nghĩa có quản lý kho đầy đủ, hóa đơn điện tử, payroll hay chứng nhận pháp định.
+
+### Kết quả chưa rõ và lưu giữ
+
+Lệnh gốc được lưu trước gửi theo phiên/origin/năm/hồ sơ; sau lỗi mạng hoặc tải lại, dùng **Thử lại / đối soát cùng lệnh gốc** với cùng người gửi và nội dung. Không xóa bộ nhớ phiên, đổi UUID/năm/tài khoản hoặc mở tab khác để ghi thay khi chưa rõ đã commit. Biên nhận cùng actor/payload được phát lại trước kiểm tra trạng thái hiện tại; command ID dùng chung namespace HKD/journal/COA. Ghi/hủy còn ràng buộc installation và revision hồ sơ: resource được restore/thay thế hoặc sai người gửi cần người vận hành đối soát đúng tài nguyên, không bỏ fence để gửi lại.
+
+Schema hiện hành là **3**; xem [Schema upgrades](accounting-storage.md#schema-upgrades) cho migration, backup cặp và rollback tương thích, không chạy migration từ thao tác công khai. Maintenance chỉ cho đọc thông tin/danh sách/báo cáo HKD, không ghi/hủy/thiết lập. `schemaStatus.bookConfigured` chỉ phản ánh sổ **doanh nghiệp**: có thể false khi HKD đã có dữ liệu; dùng `hkd-info`, `hkd-list`, `hkd-report` để đối chiếu phục hồi, không suy HKD rỗng từ cờ đó.
+
+Điều 3 TT152 yêu cầu giữ sổ giấy/điện tử tối thiểu **5 năm**; thời hạn hóa đơn tuân pháp luật thuế riêng. Khi điều chỉnh mẫu vẫn giữ tên sổ, ngày lập, chữ ký người đại diện và dấu nếu có; đối chiếu dữ liệu với cơ quan thuế. Bản CSV/in không thay backup đầy đủ hồ sơ, sự kiện và biên nhận lệnh cùng CMS/media/key/code theo [hướng dẫn vận hành](accounting-storage.md). Kết quả local không cho phép tự kích hoạt production hoặc xuất bản.
+
+Nguồn thực thi: [`hkd-model.ts`](../src/accounting/hkd-model.ts), [`hkd-validation.ts`](../src/accounting/hkd-validation.ts), [`hkd-service.ts`](../src/accounting/hkd-service.ts), [`hkd-reports.ts`](../src/accounting/hkd-reports.ts); thao tác và giữ lệnh tại [`src/admin/hkd/`](../src/admin/hkd/), registry HTTP tại [`http.ts`](../src/accounting/http.ts).
 
 ## Tham khảo
 
