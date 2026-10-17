@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_AMOUNT_MINOR } from './model.js';
+import { MAX_AMOUNT_MINOR, MAX_CSV_BYTES } from './model.js';
 
 export class ChapterError extends Error {
 	constructor(
@@ -45,7 +45,10 @@ export const listMembersSchema = z.strictObject({
 });
 
 export const importMembersSchema = z.strictObject({
-	csv: z.string().min(1).max(4_000_000),
+	csv: z.string().min(1).max(MAX_CSV_BYTES).refine(
+		(value) => new TextEncoder().encode(value).byteLength <= MAX_CSV_BYTES,
+		'CSV files must not exceed 4 MB.',
+	),
 	dryRun: z.boolean().optional(),
 });
 
@@ -69,7 +72,7 @@ export const fundListSchema = z.strictObject({
 	cursor: z.string().min(1).max(2048).optional(),
 });
 
-export const fundApproveSchema = z.strictObject({ id: uuid });
+export const fundApproveSchema = z.strictObject({ id: uuid, revision });
 
 export const documentSaveSchema = z.strictObject({
 	id: uuid,
@@ -209,10 +212,14 @@ export function parseCsv(input: string): string[][] {
 	return rows.filter((cells) => cells.some((cell) => cell.trim() !== ''));
 }
 
-function csvCell(value: string): string {
-	return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+function csvCell(value: string, spreadsheetSafe: boolean): string {
+	// Spreadsheet apps can ignore leading whitespace/control characters before a formula.
+	const literal = spreadsheetSafe && (/^[\s\u0000-\u001f\u007f-\u009f]*[=+@-]/u.test(value) || value.startsWith("'"))
+		? `'${value}`
+		: value;
+	return /[",\r\n]/.test(literal) ? `"${literal.replace(/"/g, '""')}"` : literal;
 }
 
-export function toCsv(rows: string[][]): string {
-	return rows.map((row) => row.map((cell) => csvCell(cell)).join(',')).join('\r\n');
+export function toCsv(rows: string[][], options: { spreadsheetSafe?: boolean } = {}): string {
+	return rows.map((row) => row.map((cell) => csvCell(cell, options.spreadsheetSafe === true)).join(',')).join('\r\n');
 }

@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PluginAdminExports } from 'emdash';
+import { MAX_CSV_BYTES, MAX_IMPORT_BATCH_ROWS, MAX_IMPORT_ROWS } from '../model.js';
 import type {
 	DocumentRecord,
 	DocumentType,
 	FundEntry,
 	FundTotals,
 	Info,
+	ImportMembersResult,
 	ListPage,
 	Member,
 	MemberStatus,
 	RecordView,
+	VersionedListPage,
 } from '../model.js';
+import { parseCsv, toCsv } from '../validation.js';
 import {
 	downloadCsv,
 	formatDate,
@@ -39,6 +43,14 @@ function today(): string {
 	return new Date().toISOString().slice(0, 10);
 }
 
+type MemberImportSession = {
+	fileName: string;
+	header: string[];
+	rows: string[][];
+	nextRow: number;
+	result: ImportMembersResult;
+};
+
 // --- Members -------------------------------------------------------------------
 
 function MembersSection() {
@@ -52,6 +64,8 @@ function MembersSection() {
 	const [error, setError] = useState<unknown>(null);
 	const [notice, setNotice] = useState('');
 	const [retry, setRetry] = useState(0);
+	const [importSession, setImportSession] = useState<MemberImportSession>();
+	const [importResult, setImportResult] = useState<ImportMembersResult>();
 	const importInput = useRef<HTMLInputElement>(null);
 	const mutation = useMutation();
 	const cursor = cursors[pageIndex];
@@ -80,26 +94,76 @@ function MembersSection() {
 		return () => controller.abort();
 	}, [debouncedSearch, status, cursor, retry]);
 
-	async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
-		const file = event.target.files?.[0];
-		event.target.value = '';
-		if (!file) return;
-		const csv = await file.text();
+	async function importMembers(file?: File) {
 		await mutation.run(
-			() =>
-				request<{ created: number; updated: number; skipped: number; errors: { line: number; message: string }[] }>(
-					'members-import',
-					{ csv },
-				),
+			async () => {
+				setNotice('');
+				let session = importSession;
+				if (file) {
+					if (file.size > MAX_CSV_BYTES) {
+						throw new Error(`Tệp CSV không được vượt quá ${MAX_CSV_BYTES.toLocaleString('vi-VN')} byte.`);
+					}
+					const [header, ...rows] = parseCsv(await file.text());
+					if (!header || rows.length === 0) {
+						throw new Error('Tệp CSV phải có dòng tiêu đề và ít nhất một dòng dữ liệu.');
+					}
+					if (rows.length > MAX_IMPORT_ROWS) {
+						throw new Error(`Tệp CSV không được vượt quá ${MAX_IMPORT_ROWS.toLocaleString('vi-VN')} dòng dữ liệu.`);
+					}
+					session = {
+						fileName: file.name,
+						header,
+						rows,
+						nextRow: 0,
+						result: { created: 0, updated: 0, skipped: 0, errors: [] },
+					};
+					setImportResult(session.result);
+					setImportSession(session);
+				}
+				if (!session) throw new Error('Hãy chọn tệp CSV để nhập.');
+				try {
+					while (session.nextRow < session.rows.length) {
+						const start: number = session.nextRow;
+						const batch = session.rows.slice(start, start + MAX_IMPORT_BATCH_ROWS);
+						const result: ImportMembersResult = await request<ImportMembersResult>('members-import', {
+							csv: toCsv([session.header, ...batch]),
+						});
+						session = {
+							...session,
+							nextRow: start + batch.length,
+							result: {
+								created: session.result.created + result.created,
+								updated: session.result.updated + result.updated,
+								skipped: session.result.skipped + result.skipped,
+								errors: [
+									...session.result.errors,
+									...result.errors.map((error) => ({ ...error, line: error.line + start })),
+								],
+							},
+						};
+						setImportSession(session);
+						setImportResult(session.result);
+					}
+				} finally {
+					setRetry((value) => value + 1);
+				}
+				return session.result;
+			},
 			(result) => {
 				setNotice(
 					`Đã nhập: ${result.created} mới, ${result.updated} cập nhật, ${result.skipped} bỏ qua${
-						result.errors.length ? ` · ${result.errors.length} dòng lỗi` : ''
+						result.errors.length ? ` · ${result.errors.length} bản ghi CSV lỗi` : ''
 					}.`,
 				);
-				setRetry((value) => value + 1);
+				setImportSession(undefined);
+				if (importInput.current) importInput.current.value = '';
 			},
 		);
+	}
+
+	function onFile(event: React.ChangeEvent<HTMLInputElement>) {
+		const file = event.target.files?.[0];
+		if (file) void importMembers(file);
 	}
 
 	async function onExport() {
@@ -141,7 +205,40 @@ function MembersSection() {
 					{notice}
 				</p>
 			)}
+			{importSession && (
+				<div role="status" aria-live="polite">
+					<p>
+						{importSession.fileName}: {importSession.nextRow}/{importSession.rows.length} dòng đã xử lý
+						{mutation.pending ? ' · Đang nhập…' : ' · Đã tạm dừng; có thể thử lại lô chưa hoàn tất.'}
+					</p>
+					<progress
+						aria-label="Tiến độ nhập CSV"
+						value={importSession.nextRow}
+						max={importSession.rows.length}
+					/>
+					<p>
+						{importSession.result.created} mới, {importSession.result.updated} cập nhật,{' '}
+						{importSession.result.skipped} bỏ qua.
+					</p>
+					{!mutation.pending && (
+						<>
+							<p>Lô chưa được xác nhận có thể đã lưu một phần. Thử lại sẽ cập nhật theo Mã HV.</p>
+							<button type="button" onClick={() => { void importMembers(); }}>Tiếp tục nhập CSV</button>
+						</>
+					)}
+				</div>
+			)}
 			<Failure error={mutation.error} />
+			{!!importResult?.errors.length && (
+				<details>
+					<summary>{importResult.errors.length} bản ghi CSV lỗi</summary>
+					<ul>
+						{importResult.errors.map((error, index) => (
+							<li key={`${error.line}-${index}`}>Bản ghi CSV {error.line}: {error.message}</li>
+						))}
+					</ul>
+				</details>
+			)}
 			<div className="rc-toolbar">
 				<label className="rc-search">
 					<span>Tìm theo tên / mã HV / SĐT</span>
@@ -235,8 +332,9 @@ function FundSection({ info }: { info?: Info }) {
 	const [status, setStatus] = useState<'all' | 'pending' | 'approved'>('all');
 	const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
 	const [pageIndex, setPageIndex] = useState(0);
-	const [page, setPage] = useState<ListPage<FundEntry>>();
+	const [page, setPage] = useState<VersionedListPage<FundEntry>>();
 	const [totals, setTotals] = useState<FundTotals>();
+	const [totalsError, setTotalsError] = useState<unknown>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<unknown>(null);
 	const [draft, setDraft] = useState<{ kind: 'in' | 'out'; date: string; category: string; description: string; amount: string; documentRef: string }>();
@@ -248,7 +346,7 @@ function FundSection({ info }: { info?: Info }) {
 		const controller = new AbortController();
 		setLoading(true);
 		setError(null);
-		request<ListPage<FundEntry>>(
+		request<VersionedListPage<FundEntry>>(
 			'fund-list',
 			{
 				year,
@@ -276,7 +374,12 @@ function FundSection({ info }: { info?: Info }) {
 
 	useEffect(() => {
 		const controller = new AbortController();
-		request<FundTotals>('fund-totals', undefined, controller.signal).then(setTotals, () => undefined);
+		setTotals(undefined);
+		setTotalsError(null);
+		request<FundTotals>('fund-totals', undefined, controller.signal).then(
+			(value) => { if (!controller.signal.aborted) setTotals(value); },
+			(cause: unknown) => { if (!controller.signal.aborted) setTotalsError(cause); },
+		);
 		return () => controller.abort();
 	}, [retry]);
 
@@ -332,6 +435,7 @@ function FundSection({ info }: { info?: Info }) {
 				</div>
 			</div>
 			<Failure error={mutation.error} />
+			<Failure error={totalsError} retry={() => setRetry((value) => value + 1)} />
 			{totals && (
 				<>
 					<div className="rc-kpis">
@@ -534,7 +638,7 @@ function FundSection({ info }: { info?: Info }) {
 												disabled={mutation.pending}
 												onClick={() =>
 													mutation.run(
-														() => request<RecordView<FundEntry>>('fund-approve', { id: entry.id }),
+														() => request<RecordView<FundEntry>>('fund-approve', { id: entry.id, revision: entry.revision }),
 														() => setRetry((value) => value + 1),
 													)
 												}
@@ -586,7 +690,7 @@ function DocumentsSection() {
 	const [year, setYear] = useState(0);
 	const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
 	const [pageIndex, setPageIndex] = useState(0);
-	const [page, setPage] = useState<ListPage<DocumentRecord>>();
+	const [page, setPage] = useState<VersionedListPage<DocumentRecord>>();
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<unknown>(null);
 	const [editing, setEditing] = useState<{ id: string; revision: string | null; value: ReturnType<typeof BLANK_DOCUMENT> }>();
@@ -598,7 +702,7 @@ function DocumentsSection() {
 		const controller = new AbortController();
 		setLoading(true);
 		setError(null);
-		request<ListPage<DocumentRecord>>(
+		request<VersionedListPage<DocumentRecord>>(
 			'documents-list',
 			{
 				search: debouncedSearch || undefined,
@@ -829,7 +933,7 @@ function DocumentsSection() {
 											onClick={() =>
 												setEditing({
 													id: entry.id,
-													revision: null,
+													revision: entry.revision,
 													value: {
 														number: entry.value.number,
 														title: entry.value.title,
