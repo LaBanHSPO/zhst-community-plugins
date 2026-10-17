@@ -333,6 +333,16 @@ export const messages = {
 		"انقطع الاتصال. ستُعاد المحاولة عند توفر الشبكة.",
 	],
 	backOnline: ["Đã kết nối lại.", "تم الاتصال مجدداً."],
+	transferVisit: ["Chuyển bàn", "نقل الطاولة"],
+	transferTo: ["Chuyển sang bàn trống", "النقل إلى طاولة فارغة"],
+	noEmptyTable: ["Không còn bàn trống để chuyển.", "لا توجد طاولات فارغة للنقل."],
+	transferHint: [
+		"Chuyển lượt phục vụ sang bàn trống. Mã QR cũ vẫn dùng được vì gắn với lượt.",
+		"انقل الجلسة إلى طاولة فارغة. يظل رمز QR القديم صالحاً لأنه مرتبط بالجلسة.",
+	],
+	menuAvailability: ["Tình trạng món", "توفّر الأطباق"],
+	markSoldOut: ["Báo hết món", "الإبلاغ عن النفاد"],
+	markAvailable: ["Còn món", "متوفر مجدداً"],
 } as const;
 export type TextKey = keyof typeof messages;
 const LocaleContext = createContext<{ locale: string; setLocale: (locale: string) => void }>({

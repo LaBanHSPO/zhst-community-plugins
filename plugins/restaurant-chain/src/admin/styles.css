@@ -1073,6 +1073,24 @@
 .rc-service-card small {
 	display: block;
 }
+.rc-transfer {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--rc-space-3);
+	margin-block: var(--rc-space-4);
+}
+.rc-transfer > * {
+	inline-size: min(320px, 100%);
+}
+.rc-status[data-status="available"] {
+	background: var(--rc-success-tint);
+	color: var(--rc-success);
+}
+.rc-status[data-status="unavailable"] {
+	background: var(--rc-danger-tint);
+	color: var(--rc-danger);
+}
 .rc-qr {
 	display: block;
 	max-inline-size: 100%;

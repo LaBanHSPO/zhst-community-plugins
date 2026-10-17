@@ -1,10 +1,11 @@
+import { Button } from "@cloudflare/kumo";
 import { toDataURL } from "qrcode";
 import { useEffect, useMemo, useState } from "react";
 import type { MenuItem, Order, Table, Workspace } from "../domain/types.js";
 import { IconMenu, IconQr } from "./brand.js";
 import { money, safeImage } from "./client.js";
 import { statusKey, useText } from "./locale.js";
-import { Action, Section, Status } from "./shared.js";
+import { Action, Choice, Failure, Section, Status, useCommand } from "./shared.js";
 
 const kitchenFlow = ["queued", "preparing", "ready", "served"] as const;
 
@@ -155,6 +156,58 @@ function MenuPanel({ data, table }: { data: Workspace; table?: Table }) {
 				</article>
 			)}
 		</section>
+	);
+}
+
+function TransferPanel({
+	data,
+	table,
+	visitId,
+	onDone,
+}: {
+	data: Workspace;
+	table: Table;
+	visitId: string;
+	onDone: () => void;
+}) {
+	const { t } = useText();
+	const visit = data.visits.find((candidate) => candidate.id === visitId);
+	const empty = data.tables.filter(
+		(candidate) =>
+			candidate.id !== table.id &&
+			!data.visits.some(
+				(active) => active.tableId === candidate.id && active.status !== "closed",
+			),
+	);
+	const [target, setTarget] = useState("");
+	const mutation = useCommand(onDone);
+	if (!visit) return null;
+	if (empty.length === 0) return <p className="rc-muted">{t("noEmptyTable")}</p>;
+	return (
+		<form
+			className="rc-transfer"
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (!target) return;
+				void mutation.run("transfer-visit", {
+					branchId: data.branch.id,
+					id: visit.id,
+					expectedVersion: visit.version,
+					tableId: target,
+				});
+			}}
+		>
+			<Choice
+				label={t("transferTo")}
+				value={target}
+				options={empty.map((candidate) => ({ value: candidate.id, label: candidate.name }))}
+				onChange={setTarget}
+			/>
+			<Failure error={mutation.error} />
+			<Button type="submit" disabled={mutation.pending || !target}>
+				{t(mutation.pending ? "saving" : "transferVisit")}
+			</Button>
+		</form>
 	);
 }
 
@@ -321,6 +374,12 @@ function TableDetail({
 								onDone={onDone}
 							/>
 							<p className="rc-muted">{t("freezeHint")}</p>
+						</>
+					)}
+					{visitId && (
+						<>
+							<p className="rc-muted">{t("transferHint")}</p>
+							<TransferPanel data={data} table={table} visitId={visitId} onDone={onDone} />
 						</>
 					)}
 					<p className="rc-muted">{t("paymentWarning")}</p>
@@ -537,10 +596,12 @@ export function Floor({
 }
 
 export function Kitchen({ data, onDone }: { data: Workspace; onDone: () => void }) {
-	const { t } = useText();
+	const { t, locale } = useText();
 	const states = ["queued", "preparing", "ready"] as const;
+	const canToggle = ["manager", "administrator", "kitchen"].includes(data.role);
 	return (
-		<Section title={t("kitchen")}>
+		<>
+			<Section title={t("kitchen")}>
 			<div className="rc-kitchen">
 				{states.map((state) => (
 					<section className="rc-lane" key={state}>
@@ -594,6 +655,37 @@ export function Kitchen({ data, onDone }: { data: Workspace; onDone: () => void 
 					</section>
 				))}
 			</div>
-		</Section>
+			</Section>
+			{canToggle && (
+				<Section title={t("menuAvailability")}>
+					<div className="rc-panel rc-list">
+						{data.menu.map((item) => (
+							<article className="rc-list-row" key={item.id}>
+								<div>
+									<strong>{item.name}</strong>
+									<small className="rc-muted">
+										{item.category} · {money(item.price, locale)}
+									</small>
+								</div>
+								<div className="rc-toolbar">
+									<Status value={item.available ? "available" : "unavailable"} />
+									<Action
+										action="set-menu-availability"
+										label={item.available ? "markSoldOut" : "markAvailable"}
+										input={{
+											branchId: data.branch.id,
+											id: item.id,
+											expectedVersion: item.version,
+											available: !item.available,
+										}}
+										onDone={onDone}
+									/>
+								</div>
+							</article>
+						))}
+					</div>
+				</Section>
+			)}
+		</>
 	);
 }

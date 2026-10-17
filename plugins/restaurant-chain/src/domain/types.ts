@@ -308,6 +308,8 @@ export interface ActionInputs {
 	};
 	"open-visit": Command & { tableId: string; expectedVersion: number };
 	"close-visit": RevisionCommand;
+	"transfer-visit": RevisionCommand & { tableId: string };
+	"set-menu-availability": RevisionCommand & { available: boolean };
 	"open-shift": Command & { openingFloat: number };
 	"close-shift": RevisionCommand & { countedCash: number; note: string };
 	"freeze-bill": RevisionCommand;

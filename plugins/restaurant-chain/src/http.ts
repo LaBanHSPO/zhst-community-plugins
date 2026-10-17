@@ -19,6 +19,8 @@ const commands: Record<string, true | undefined> = {
 	"save-menu-item": true,
 	"open-visit": true,
 	"close-visit": true,
+	"transfer-visit": true,
+	"set-menu-availability": true,
 	"open-shift": true,
 	"close-shift": true,
 	"freeze-bill": true,

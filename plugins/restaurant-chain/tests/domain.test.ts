@@ -1276,4 +1276,84 @@ describe("D1 restaurant domain", () => {
 			{ code: "NOT_FOUND" },
 		);
 	});
+
+	it("transfers a visit to an empty table while keeping the guest session valid", async () => {
+		const second = (await command(admin, "save-table", { branchId, name: "Bàn 02" })).id;
+		await serve(1);
+		let visit = (await workspace()).visits.find((entry) => entry.id === session.visit.id)!;
+		await command(admin, "transfer-visit", {
+			branchId,
+			id: visit.id,
+			expectedVersion: visit.version,
+			tableId: second,
+		});
+		assert.equal(
+			(await workspace()).visits.find((entry) => entry.id === session.visit.id)!.tableId,
+			second,
+		);
+		const menu = (await guest.execute("menu", { token: session.token })) as GuestMenu;
+		assert.equal(menu.table.id, second);
+		const third = (await command(admin, "save-table", { branchId, name: "Bàn 03" })).id;
+		await command(admin, "open-visit", { branchId, tableId: third, expectedVersion: 1 });
+		visit = (await workspace()).visits.find((entry) => entry.id === session.visit.id)!;
+		await assert.rejects(
+			command(admin, "transfer-visit", {
+				branchId,
+				id: visit.id,
+				expectedVersion: visit.version,
+				tableId: third,
+			}),
+			{ code: "CONFLICT" },
+		);
+		await assert.rejects(
+			command(admin, "transfer-visit", {
+				branchId,
+				id: visit.id,
+				expectedVersion: visit.version,
+				tableId: second,
+			}),
+			{ code: "SAME_TABLE" },
+		);
+	});
+
+	it("lets kitchen or manager mark a dish sold out and blocks other roles", async () => {
+		await command(admin, "save-member", { branchId, userId: "cook", role: "kitchen" });
+		await command(admin, "save-member", { branchId, userId: "waiter", role: "floor" });
+		const cook = new RestaurantService(db, { id: "cook", administrator: false });
+		const waiter = new RestaurantService(db, { id: "waiter", administrator: false });
+		await assert.rejects(
+			command(waiter, "set-menu-availability", {
+				branchId,
+				id: menuId,
+				expectedVersion: 1,
+				available: false,
+			}),
+			{ code: "FORBIDDEN" },
+		);
+		await command(cook, "set-menu-availability", {
+			branchId,
+			id: menuId,
+			expectedVersion: 1,
+			available: false,
+		});
+		assert.equal((await workspace()).menu.find((entry) => entry.id === menuId)!.available, false);
+		const menu = (await guest.execute("menu", { token: session.token })) as GuestMenu;
+		assert.equal(menu.items.find((entry) => entry.id === menuId)!.available, false);
+		await assert.rejects(
+			command(guest, "submit-order", {
+				token: session.token,
+				expectedVersion: 1,
+				note: "",
+				lines: [{ menuItemId: menuId, quantity: 1, modifierIds: [] }],
+			}),
+			{ code: "NOT_FOUND" },
+		);
+		await command(cook, "set-menu-availability", {
+			branchId,
+			id: menuId,
+			expectedVersion: 2,
+			available: true,
+		});
+		assert.equal((await workspace()).menu.find((entry) => entry.id === menuId)!.available, true);
+	});
 });

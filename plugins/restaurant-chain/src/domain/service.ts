@@ -90,6 +90,10 @@ export class RestaurantService {
 					return await this.openVisit(schemas["open-visit"].parse(input));
 				case "close-visit":
 					return await this.closeVisit(schemas["close-visit"].parse(input));
+				case "transfer-visit":
+					return await this.transferVisit(schemas["transfer-visit"].parse(input));
+				case "set-menu-availability":
+					return await this.setMenuAvailability(schemas["set-menu-availability"].parse(input));
 				case "open-shift":
 					return await this.openShift(schemas["open-shift"].parse(input));
 				case "close-shift":
@@ -751,6 +755,86 @@ export class RestaurantService {
 				branchId: input.branchId,
 				entityId: input.id,
 			}),
+		);
+	}
+	private async transferVisit(input: ActionInputs["transfer-visit"]): Promise<unknown> {
+		const access = await this.access(input.branchId, floor);
+		return this.commit(await this.context("transfer-visit", input, access), "transfer-visit", async () => {
+			const visit = await this.visit(input.branchId, input.id);
+			if (visit.status === "closed")
+				throw new DomainError("CONFLICT", "This visit is already closed", 409);
+			if (visit.tableId === input.tableId)
+				throw new DomainError("SAME_TABLE", "The visit is already on this table", 409);
+			const table = await this.required<{ id: string }>(
+				"SELECT id FROM rc_tables WHERE branch_id=? AND id=?",
+				input.branchId,
+				input.tableId,
+			);
+			return {
+				statements: [
+					...this.assertion(
+						"NOT EXISTS(SELECT 1 FROM rc_visits WHERE table_id=? AND status<>'closed' AND id<>?)",
+						table.id,
+						visit.id,
+					),
+					...this.fenced(
+						this.stmt(
+							"UPDATE rc_visits SET table_id=?,version=version+1 WHERE branch_id=? AND id=? AND version=? AND status<>'closed'",
+							table.id,
+							input.branchId,
+							input.id,
+							input.expectedVersion,
+						),
+					),
+					this.stmt(
+						"UPDATE rc_tables SET version=version+1 WHERE branch_id=? AND id=?",
+						input.branchId,
+						table.id,
+					),
+					this.stmt(
+						"UPDATE rc_tables SET version=version+1 WHERE branch_id=? AND id=?",
+						input.branchId,
+						visit.tableId,
+					),
+				],
+				result: { id: input.id, version: input.expectedVersion + 1, tableId: table.id },
+				branchId: input.branchId,
+				entityId: input.id,
+				detail: { from: visit.tableId, to: table.id },
+			};
+		});
+	}
+	private async setMenuAvailability(
+		input: ActionInputs["set-menu-availability"],
+	): Promise<unknown> {
+		const access = await this.access(input.branchId, ["manager", "kitchen"]);
+		return this.commit(
+			await this.context("set-menu-availability", input, access),
+			"set-menu-availability",
+			async () => {
+				await this.required<{ id: string }>(
+					"SELECT id FROM rc_menu WHERE branch_id=? AND id=?",
+					input.branchId,
+					input.id,
+				);
+				return {
+					statements: [
+						...this.fenced(
+							this.stmt(
+								"UPDATE rc_menu SET available=?,version=version+1 WHERE branch_id=? AND id=? AND version=?",
+								Number(input.available),
+								input.branchId,
+								input.id,
+								input.expectedVersion,
+							),
+						),
+					],
+					result: { id: input.id, version: input.expectedVersion + 1 },
+					branchId: input.branchId,
+					entityId: input.id,
+					detail: { available: input.available },
+				};
+			},
 		);
 	}
 	private async openShift(input: ActionInputs["open-shift"]): Promise<unknown> {
