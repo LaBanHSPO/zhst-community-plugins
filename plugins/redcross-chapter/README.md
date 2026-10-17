@@ -44,6 +44,8 @@ Three plugin-owned collections: `members`, `fund`, `documents`. Money is stored 
 
 Private routes require an authenticated administrator (`ctx.user`); the caller's identity is taken from the host session, never from the request body. Public routes expose only aggregated fund figures and published documents.
 
+Fund and document list responses include the revision matching each displayed value. Existing edits and fund approval must send that revision; a stale revision is rejected without changing the record. `revision: null` is create-only, so an old document form cannot republish a document another administrator made private.
+
 ## Develop
 
 ```sh
@@ -70,6 +72,10 @@ Header row, comma-separated, UTF-8. Recognised columns (Vietnamese or English):
 
 `Mã HV` and `Họ tên` are required. Rows are matched on the normalised member code, so re-importing updates existing members.
 
+The workspace validates the selected UTF-8 file before writing (4,000,000 bytes, at most 10,000 data records), then sends sequential batches of at most 50 records. Direct API callers must use the same batch bound. Progress and errors use logical CSV record numbers, counting the header as record 1; a quoted multiline field is one record. Failed batches stop the import and retain retry state; already acknowledged batches remain committed. Re-importing is an upsert, not an all-or-nothing file transaction.
+
+Exports prefix formula-like spreadsheet cells and literal leading apostrophes with an apostrophe so cells are not evaluated as formulas. The additional `__redcross_encoding` column marks this reversible `apostrophe-v1` encoding. Re-importing a marked export restores exact member codes, names and phone fields; unmarked CSV input remains literal. Preserve the marker column when editing an exported file.
+
 ## Document files
 
 The plugin stores a **file URL** (and display file name) rather than uploading bytes itself. Upload PDFs to the EmDash media library, then paste the resulting URL into the document record. This keeps the plugin free of media-write capabilities.
@@ -78,7 +84,8 @@ The plugin stores a **file URL** (and display file name) rather than uploading b
 
 - Local Node/SQLite results only; no Cloudflare deployment is claimed.
 - Fund figures are an internal transparency ledger, not statutory accounting.
-- CSV import is capped at ~4 MB / 10,000 rows per request; export at 10,000 rows.
+- CSV files are capped at 4,000,000 UTF-8 bytes / 10,000 data records, with at most 50 records per API request; export is capped at 10,000 records.
+- Complete financial reads fail explicitly if they exceed 10,000 approved or pending records; they never return a silently truncated total. Unrepresentable safe-integer totals fail rather than rounding VND.
 
 ## License
 

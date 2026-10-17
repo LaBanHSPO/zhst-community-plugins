@@ -2,6 +2,7 @@ export const PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 100;
 export const MAX_CSV_BYTES = 4_000_000;
 export const MAX_IMPORT_ROWS = 10_000;
+export const MAX_IMPORT_BATCH_ROWS = 50;
 export const MAX_EXPORT_ROWS = 10_000;
 export const MAX_AMOUNT_MINOR = 1_000_000_000_000_000;
 
@@ -67,6 +68,10 @@ export interface ListPage<T> {
 	items: { id: string; value: T }[];
 	cursor?: string;
 	hasMore: boolean;
+}
+
+export interface VersionedListPage<T> extends ListPage<T> {
+	items: RecordView<T>[];
 }
 
 export type ApiResult<T> =

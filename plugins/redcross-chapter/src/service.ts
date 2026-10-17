@@ -1,5 +1,5 @@
 import type { StorageCollection } from 'emdash';
-import type { z } from 'zod';
+import { z } from 'zod';
 import type {
 	ApprovalStatus,
 	DocumentRecord,
@@ -8,6 +8,7 @@ import type {
 	FundEntry,
 	FundSaveInput,
 	FundTotals,
+	ImportMembersResult,
 	Info,
 	ListPage,
 	Member,
@@ -16,8 +17,9 @@ import type {
 	PublicFund,
 	PublicFundEntry,
 	RecordView,
+	VersionedListPage,
 } from './model.js';
-import { MAX_EXPORT_ROWS, PAGE_SIZE } from './model.js';
+import { MAX_EXPORT_ROWS, MAX_IMPORT_BATCH_ROWS, MAX_IMPORT_ROWS, PAGE_SIZE } from './model.js';
 import {
 	ChapterError,
 	approvalStatusSchema,
@@ -50,7 +52,24 @@ export interface ChapterStorage {
 type WhereClause = NonNullable<NonNullable<Parameters<ChapterCollection['query']>[0]>['where']>;
 type StoredItem = { id: string; data: unknown };
 
+const memberSearchCursorSchema = z.strictObject({
+	search: z.string(),
+	status: z.enum(['active', 'paused']).optional(),
+	phase: z.enum(['name', 'code']),
+	cursor: z.string().min(1).max(2048).optional(),
+	offset: z.number().int().min(0).max(PAGE_SIZE),
+});
+
+function checkedAmount(value: number): number {
+	if (!Number.isSafeInteger(value)) {
+		throw new ChapterError('AMOUNT_OVERFLOW', 'The fund aggregate exceeds the safe integer range. No rounded total can be displayed.');
+	}
+	return value;
+}
+
 const MEMBER_HEADERS = ['Mã HV', 'Họ tên', 'Năm sinh', 'Địa chỉ', 'SĐT', 'CCCD', 'Trạng thái'];
+const CSV_ENCODING_HEADER = '__redcross_encoding';
+const CSV_ENCODING = 'apostrophe-v1';
 const MEMBER_ALIASES: Record<string, string> = {
 	'mã hv': 'code',
 	ma: 'code',
@@ -110,7 +129,7 @@ function parseBirthYear(cell: string): number | null {
 	const value = cell.trim();
 	if (value === '') return null;
 	const year = Number(value);
-	if (!Number.isInteger(year)) throw new Error('Enter the birth year as a whole number or leave it empty.');
+	if (!Number.isInteger(year)) throw new ChapterError('INVALID_INPUT', 'Enter the birth year as a whole number or leave it empty.');
 	return year;
 }
 
@@ -118,7 +137,7 @@ function parseMemberStatus(cell: string): 'active' | 'paused' {
 	const value = normalizeKey(cell.trim());
 	if (value === '' || value === 'hoạt động' || value === 'active') return 'active';
 	if (value === 'tạm nghỉ' || value === 'paused' || value === 'inactive') return 'paused';
-	throw new Error('Status must be "Hoạt động" or "Tạm nghỉ".');
+	throw new ChapterError('INVALID_INPUT', 'Status must be "Hoạt động" or "Tạm nghỉ".');
 }
 
 export class ChapterService {
@@ -139,16 +158,20 @@ export class ChapterService {
 		};
 	}
 
-	private async queryAll(collection: ChapterCollection, where: WhereClause): Promise<StoredItem[]> {
+	private async queryAll(collection: ChapterCollection, where: WhereClause, allowTruncation = false): Promise<StoredItem[]> {
 		const items: StoredItem[] = [];
 		let cursor: string | undefined;
 		for (let page = 0; page < 100; page += 1) {
 			const result = await collection.query({ where, limit: 100, ...(cursor ? { cursor } : {}) });
 			items.push(...result.items);
-			if (!result.hasMore || !result.cursor) break;
+			if (!result.hasMore) return items;
+			if (page === 99 && allowTruncation) return items;
+			if (!result.cursor || result.cursor === cursor) {
+				throw new ChapterError('QUERY_LIMIT', 'The storage query cannot continue safely. No partial total can be displayed.');
+			}
 			cursor = result.cursor;
 		}
-		return items;
+		throw new ChapterError('QUERY_LIMIT', 'This complete report exceeds the 10,000-record query limit. No partial total can be displayed.');
 	}
 
 	private async current<T>(
@@ -162,7 +185,7 @@ export class ChapterService {
 	}
 
 	private checkRevision(expected: string | null, actual: string | null): void {
-		if (expected !== null && expected !== actual) conflict();
+		if (expected !== actual) conflict();
 	}
 
 	private async save<T>(
@@ -197,30 +220,54 @@ export class ChapterService {
 		const data = parse(listMembersSchema, input);
 		const where: WhereClause = {};
 		if (data.status) where.status = data.status;
-		let items: StoredItem[];
 		if (data.search) {
 			const key = normalizeKey(data.search);
-			const [byName, byCode] = await Promise.all([
-				this.storage.members.query({
-					where: { ...where, nameKey: { startsWith: key } },
-					limit: 100,
-				}),
-				this.storage.members.query({
-					where: { ...where, codeKey: { startsWith: key } },
-					limit: 100,
-				}),
-			]);
-			const merged = new Map<string, StoredItem>();
-			for (const item of [...byName.items, ...byCode.items]) merged.set(item.id, item);
-			items = [...merged.values()].sort((a, b) => a.id.localeCompare(b.id));
-			const start = 0;
-			const page = items.slice(start, start + PAGE_SIZE);
-			return {
-				items: page.map((item) => ({ id: item.id, value: versionedValue(memberRecordSchema, item.data) })),
-				hasMore: false,
+			let state: z.infer<typeof memberSearchCursorSchema> = {
+				search: key, ...(data.status ? { status: data.status } : {}), phase: 'name', offset: 0,
 			};
+			if (data.cursor) {
+				try {
+					state = memberSearchCursorSchema.parse(JSON.parse(data.cursor));
+				} catch {
+					throw new ChapterError('INVALID_CURSOR', 'Reload member search from its first page.');
+				}
+				if (state.search !== key || state.status !== data.status) {
+					throw new ChapterError('INVALID_CURSOR', 'This cursor belongs to a different member search.');
+				}
+			}
+			const items: ListPage<Member>['items'] = [];
+			// Scan name matches first, then code-only matches. The cursor retains a position
+			// within a fixed-size storage page, so lookahead never loses a matching row.
+			for (;;) {
+				const page = await this.storage.members.query({
+					where: { ...where, [state.phase === 'name' ? 'nameKey' : 'codeKey']: { startsWith: key } },
+					limit: PAGE_SIZE,
+					...(state.cursor ? { cursor: state.cursor } : {}),
+				});
+				for (let index = state.offset; index < page.items.length; index += 1) {
+					const item = page.items[index]!;
+					const value = versionedValue(memberRecordSchema, item.data);
+					if (state.phase === 'code' && value.nameKey.startsWith(key)) continue;
+					if (items.length === PAGE_SIZE) {
+						return { items, hasMore: true, cursor: JSON.stringify({ ...state, offset: index }) };
+					}
+					items.push({ id: item.id, value });
+				}
+				if (page.hasMore) {
+					if (!page.cursor || page.cursor === state.cursor) {
+						throw new ChapterError('INVALID_CURSOR', 'The member search cannot continue safely. Reload the list.');
+					}
+					state = { ...state, cursor: page.cursor, offset: 0 };
+				} else if (state.phase === 'name') {
+					state = { search: key, ...(data.status ? { status: data.status } : {}), phase: 'code', offset: 0 };
+				} else {
+					return { items, hasMore: false };
+				}
+			}
 		}
-		const page = await this.storage.members.query({ where, limit: PAGE_SIZE });
+		const page = await this.storage.members.query({
+			where, limit: PAGE_SIZE, ...(data.cursor ? { cursor: data.cursor } : {}),
+		});
 		return {
 			items: page.items.map((item) => ({
 				id: item.id,
@@ -231,10 +278,17 @@ export class ChapterService {
 		};
 	}
 
-	async importMembers(input: unknown): Promise<{ created: number; updated: number; skipped: number; errors: { line: number; message: string }[] }> {
+	async importMembers(input: unknown): Promise<ImportMembersResult> {
 		const data = parse(importMembersSchema, input);
 		const rows = parseCsv(data.csv);
 		if (rows.length === 0) throw new ChapterError('INVALID_INPUT', 'The uploaded file is empty.');
+		const rowCount = rows.length - 1;
+		if (rowCount > MAX_IMPORT_ROWS) {
+			throw new ChapterError('INVALID_INPUT', `CSV files must not exceed ${MAX_IMPORT_ROWS} data rows.`);
+		}
+		if (rowCount > MAX_IMPORT_BATCH_ROWS) {
+			throw new ChapterError('INVALID_INPUT', `Import requests must not exceed ${MAX_IMPORT_BATCH_ROWS} data rows. Split the file into batches.`);
+		}
 		const header = rows[0]!.map((cell) => MEMBER_ALIASES[normalizeKey(cell.trim())] ?? cell.trim());
 		const indexOf = (column: string) => header.indexOf(column);
 		if (indexOf('code') === -1 || indexOf('fullName') === -1) {
@@ -252,7 +306,10 @@ export class ChapterService {
 			const line = i + 1;
 			const cell = (column: string): string => {
 				const position = indexOf(column);
-				return position === -1 ? '' : (cells[position] ?? '');
+				const value = position === -1 ? '' : (cells[position] ?? '');
+				return indexOf(CSV_ENCODING_HEADER) !== -1 && cells[indexOf(CSV_ENCODING_HEADER)] === CSV_ENCODING && value.startsWith("'")
+					? value.slice(1)
+					: value;
 			};
 			try {
 				const candidate = memberSchema.safeParse({
@@ -273,7 +330,6 @@ export class ChapterService {
 				const codeKey = normalizeKey(value.code);
 				const id = codeKey;
 				const existing = await this.storage.members.getVersioned(id);
-				if (existing && !data.dryRun) versionedValue(memberRecordSchema, existing.value);
 				const record: Member = {
 					...value,
 					...this.metadata(existing ? versionedValue(memberRecordSchema, existing.value) : undefined),
@@ -288,19 +344,22 @@ export class ChapterService {
 				if (existing) updated += 1;
 				else created += 1;
 			} catch (error) {
-				errors.push({ line, message: error instanceof Error ? error.message : 'Invalid row.' });
+				// Only row validation is recoverable; infrastructure, schema and write
+				// conflicts must fail the batch so the caller keeps it available to retry.
+				if (!(error instanceof ChapterError) || error.code !== 'INVALID_INPUT') throw error;
+				errors.push({ line, message: error.message });
 				skipped += 1;
 			}
 		}
-		return { created, updated, skipped, errors: errors.slice(0, 200) };
+		return { created, updated, skipped, errors };
 	}
 
 	async exportMembers(): Promise<{ filename: string; csv: string }> {
-		const items = await this.queryAll(this.storage.members, {});
+		const items = await this.queryAll(this.storage.members, {}, true);
 		const members = items
 			.map((item) => versionedValue(memberRecordSchema, item.data))
 			.slice(0, MAX_EXPORT_ROWS);
-		const rows: string[][] = [MEMBER_HEADERS];
+		const rows: string[][] = [[...MEMBER_HEADERS, CSV_ENCODING_HEADER]];
 		for (const member of members) {
 			rows.push([
 				member.code,
@@ -310,10 +369,11 @@ export class ChapterService {
 				member.phone,
 				member.cccd,
 				member.status === 'active' ? 'Hoạt động' : 'Tạm nghỉ',
+				CSV_ENCODING,
 			]);
 		}
 		const stamp = this.now().toISOString().slice(0, 10);
-		return { filename: `hoi-vien-${stamp}.csv`, csv: toCsv(rows) };
+		return { filename: `hoi-vien-${stamp}.csv`, csv: toCsv(rows, { spreadsheetSafe: true }) };
 	}
 
 	// --- Fund --------------------------------------------------------------------
@@ -337,12 +397,12 @@ export class ChapterService {
 			const month = Number(entry.monthKey.slice(5, 7));
 			const bucket = monthly[month - 1];
 			if (entry.kind === 'in') {
-				totalInMinor += amount;
-				if (bucket) bucket.inMinor += amount;
+				totalInMinor = checkedAmount(totalInMinor + amount);
+				if (bucket) bucket.inMinor = checkedAmount(bucket.inMinor + amount);
 			} else {
-				totalOutMinor += amount;
-				if (bucket) bucket.outMinor += amount;
-				categoryMap.set(entry.category, (categoryMap.get(entry.category) ?? 0) + amount);
+				totalOutMinor = checkedAmount(totalOutMinor + amount);
+				if (bucket) bucket.outMinor = checkedAmount(bucket.outMinor + amount);
+				categoryMap.set(entry.category, checkedAmount((categoryMap.get(entry.category) ?? 0) + amount));
 			}
 		}
 		const pendingItems = await this.queryAll(this.storage.fund, { status: 'pending' });
@@ -351,7 +411,7 @@ export class ChapterService {
 			minorUnits: 0,
 			totalInMinor,
 			totalOutMinor,
-			balanceMinor: totalInMinor - totalOutMinor,
+			balanceMinor: checkedAmount(totalInMinor - totalOutMinor),
 			pendingCount: pendingItems.length,
 			monthly,
 			byCategory: [...categoryMap.entries()]
@@ -360,7 +420,7 @@ export class ChapterService {
 		};
 	}
 
-	async listFund(input: unknown): Promise<ListPage<FundEntry>> {
+	async listFund(input: unknown): Promise<VersionedListPage<FundEntry>> {
 		const data = parse(fundListSchema, input);
 		const where: WhereClause = {};
 		if (data.status) where.status = data.status;
@@ -375,9 +435,10 @@ export class ChapterService {
 			...(data.cursor ? { cursor: data.cursor } : {}),
 		});
 		return {
-			items: page.items.map((item) => ({
-				id: item.id,
-				value: versionedValue(fundRecordSchema, item.data),
+			items: await Promise.all(page.items.map(async (item) => {
+				const record = await this.current(this.storage.fund, item.id, fundRecordSchema);
+				if (!record) conflict();
+				return { id: item.id, ...record };
 			})),
 			...(page.cursor ? { cursor: page.cursor } : {}),
 			hasMore: page.hasMore,
@@ -403,13 +464,14 @@ export class ChapterService {
 			monthKey: data.date.slice(0, 7),
 			approvedAmountMinor: 0,
 		};
-		return this.save(this.storage.fund, data.id, current?.revision ?? null, value);
+		return this.save(this.storage.fund, data.id, data.revision, value);
 	}
 
 	async approveFund(input: unknown): Promise<RecordView<FundEntry>> {
 		const data = parse(fundApproveSchema, input);
 		const current = await this.current(this.storage.fund, data.id, fundRecordSchema);
 		if (!current) throw new ChapterError('NOT_FOUND', 'The requested entry does not exist.');
+		this.checkRevision(data.revision, current.revision);
 		if (current.value.status !== 'pending') {
 			throw new ChapterError('INVALID_TRANSITION', 'Only a pending entry can be approved.');
 		}
@@ -422,7 +484,7 @@ export class ChapterService {
 			approvedBy: this.actorId,
 			approvedAmountMinor: current.value.amountMinor,
 		};
-		return this.save(this.storage.fund, data.id, current.revision, value);
+		return this.save(this.storage.fund, data.id, data.revision, value);
 	}
 
 	async publicFund(): Promise<PublicFund> {
@@ -447,7 +509,7 @@ export class ChapterService {
 
 	// --- Documents ---------------------------------------------------------------
 
-	async listDocuments(input: unknown): Promise<ListPage<DocumentRecord>> {
+	async listDocuments(input: unknown): Promise<VersionedListPage<DocumentRecord>> {
 		const data = parse(documentListSchema, input);
 		const where: WhereClause = {};
 		if (data.type) where.type = data.type;
@@ -460,9 +522,10 @@ export class ChapterService {
 			...(data.cursor ? { cursor: data.cursor } : {}),
 		});
 		return {
-			items: page.items.map((item) => ({
-				id: item.id,
-				value: versionedValue(documentRecordSchema, item.data),
+			items: await Promise.all(page.items.map(async (item) => {
+				const record = await this.current(this.storage.documents, item.id, documentRecordSchema);
+				if (!record) conflict();
+				return { id: item.id, ...record };
 			})),
 			...(page.cursor ? { cursor: page.cursor } : {}),
 			hasMore: page.hasMore,
@@ -485,11 +548,11 @@ export class ChapterService {
 			...this.metadata(current?.value),
 			titleKey: normalizeKey(data.title),
 		};
-		return this.save(this.storage.documents, data.id, current?.revision ?? null, value);
+		return this.save(this.storage.documents, data.id, data.revision, value);
 	}
 
 	async publicDocuments(): Promise<PublicDocument[]> {
-		const items = await this.queryAll(this.storage.documents, { isPublic: true });
+		const items = await this.queryAll(this.storage.documents, { isPublic: true }, true);
 		return items
 			.map((item) => versionedValue(documentRecordSchema, item.data))
 			.sort((a, b) => b.date.localeCompare(a.date))
