@@ -1276,4 +1276,146 @@ describe("D1 restaurant domain", () => {
 			{ code: "NOT_FOUND" },
 		);
 	});
+
+	it("applies a manager discount and settles the payable amount", async () => {
+		await command(admin, "open-shift", { branchId, openingFloat: 0 });
+		await serve(2);
+		const visit = (await workspace()).visits.find((entry) => entry.id === session.visit.id)!;
+		const bill = await command(admin, "freeze-bill", {
+			branchId,
+			id: visit.id,
+			expectedVersion: visit.version,
+		});
+		await command(admin, "save-member", { branchId, userId: "till", role: "cashier" });
+		const cashier = new RestaurantService(db, { id: "till", administrator: false });
+		await assert.rejects(
+			command(cashier, "apply-discount", {
+				branchId,
+				id: bill.id,
+				expectedVersion: 1,
+				percent: 10,
+				reason: "Khuyến mãi",
+			}),
+			{ code: "FORBIDDEN" },
+		);
+		await command(admin, "apply-discount", {
+			branchId,
+			id: bill.id,
+			expectedVersion: 1,
+			percent: 10,
+			reason: "Khuyến mãi",
+		});
+		let stored = (await workspace()).bills.find((entry) => entry.id === bill.id)!;
+		assert.equal(stored.discount, 12000);
+		await command(admin, "settle-bill", {
+			branchId,
+			id: bill.id,
+			expectedVersion: 2,
+			method: "cash",
+			reference: "",
+		});
+		stored = (await workspace()).bills.find((entry) => entry.id === bill.id)!;
+		assert.equal(stored.amount, 108000);
+		const shift = (await workspace()).shift!;
+		const closed = (await command(admin, "close-shift", {
+			branchId,
+			id: shift.id,
+			expectedVersion: shift.version,
+			countedCash: 108000,
+			note: "",
+		})) as unknown as { expectedCash: number; variance: number };
+		assert.equal(closed.expectedCash, 108000);
+		assert.equal(closed.variance, 0);
+	});
+
+	it("refunds a settled bill within the retained amount and records history", async () => {
+		await command(admin, "open-shift", { branchId, openingFloat: 0 });
+		await serve(1);
+		const visit = (await workspace()).visits.find((entry) => entry.id === session.visit.id)!;
+		const bill = await command(admin, "freeze-bill", {
+			branchId,
+			id: visit.id,
+			expectedVersion: visit.version,
+		});
+		await command(admin, "settle-bill", {
+			branchId,
+			id: bill.id,
+			expectedVersion: 1,
+			method: "cash",
+			reference: "",
+		});
+		await assert.rejects(
+			command(admin, "refund-bill", {
+				branchId,
+				id: bill.id,
+				expectedVersion: 2,
+				amount: 70000,
+				method: "cash",
+				reason: "Vượt số tiền đã thu",
+			}),
+			{ code: "REFUND_EXCEEDS" },
+		);
+		await command(admin, "refund-bill", {
+			branchId,
+			id: bill.id,
+			expectedVersion: 2,
+			amount: 20000,
+			method: "cash",
+			reason: "Khách phàn nàn",
+		});
+		const ws = await workspace();
+		assert.equal(ws.bills.find((entry) => entry.id === bill.id)!.refunded, 20000);
+		assert.equal(ws.refunds.length, 1);
+		assert.equal(ws.refunds[0]!.amount, 20000);
+		await assert.rejects(
+			command(admin, "refund-bill", {
+				branchId,
+				id: bill.id,
+				expectedVersion: 3,
+				amount: 50000,
+				method: "cash",
+				reason: "Vượt phần còn lại",
+			}),
+			{ code: "REFUND_EXCEEDS" },
+		);
+		const shift = (await workspace()).shift!;
+		const closed = (await command(admin, "close-shift", {
+			branchId,
+			id: shift.id,
+			expectedVersion: shift.version,
+			countedCash: 40000,
+			note: "",
+		})) as unknown as { expectedCash: number; variance: number };
+		assert.equal(closed.expectedCash, 40000);
+	});
+
+	it("requires a manager to void an order that is already in preparation", async () => {
+		await command(admin, "save-member", { branchId, userId: "till", role: "cashier" });
+		const cashier = new RestaurantService(db, { id: "till", administrator: false });
+		const order = await submit(1);
+		await command(admin, "confirm-order", { branchId, id: order.id, expectedVersion: 1 });
+		const line = (await workspace()).orders.find((entry) => entry.id === order.id)!.lines[0]!;
+		await command(admin, "kitchen-transition", {
+			branchId,
+			id: line.id,
+			expectedVersion: 1,
+			status: "preparing",
+		});
+		await assert.rejects(
+			command(cashier, "void-order", {
+				branchId,
+				id: order.id,
+				expectedVersion: 2,
+				reason: "Thử hủy đang nấu",
+			}),
+			{ code: "MANAGER_REQUIRED" },
+		);
+		await command(admin, "void-order", {
+			branchId,
+			id: order.id,
+			expectedVersion: 2,
+			reason: "Quản lý cho hủy",
+		});
+		assert.equal((await workspace()).orders.find((entry) => entry.id === order.id)!.status, "voided");
+	});
 });
