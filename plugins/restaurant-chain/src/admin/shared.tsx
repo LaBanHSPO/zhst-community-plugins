@@ -5,6 +5,8 @@ import { CommandIdentity, request, RestaurantRequestError } from "./client.js";
 import { statusKey, useText } from "./locale.js";
 import type { TextKey } from "./locale.js";
 
+export { ChefHat, RestaurantLogo } from "./brand.js";
+
 export function Failure({ error }: { error: unknown }) {
 	const { t } = useText();
 	if (!error) return null;
