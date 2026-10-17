@@ -1046,6 +1046,33 @@
 .rc-list-row small.rc-muted {
 	display: block;
 }
+.rc-service-rail {
+	display: flex;
+	flex-direction: column;
+	gap: var(--rc-space-2);
+	margin-block-end: var(--rc-space-4);
+}
+.rc-service-card {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--rc-space-3);
+	padding: var(--rc-space-3) var(--rc-space-4);
+	border: 1px solid var(--rc-brand);
+	background: var(--rc-brand-tint);
+	border-radius: var(--rc-radius-sm);
+}
+.rc-service-card .rc-action {
+	margin-block: 0;
+}
+.rc-service-kind {
+	font-weight: 700;
+	color: var(--rc-brand-strong);
+	display: block;
+}
+.rc-service-card small {
+	display: block;
+}
 .rc-qr {
 	display: block;
 	max-inline-size: 100%;

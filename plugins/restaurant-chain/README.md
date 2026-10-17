@@ -49,6 +49,15 @@ The role selector on an administrator's screen changes the workspace view; it do
 
 EmDash administrators can configure bank accounts and legal issuers and access all branches. Branch managers cannot change those receiving or issuer settings.
 
+## Call staff and request the bill from the table
+
+While their visit is open, a guest can raise a service request from the table surface:
+**Gọi nhân viên** (a waiter) or **Yêu cầu tính tiền** (the bill). At most one open
+request of each kind exists per visit, so repeated taps do not flood the floor. Floor,
+cashier and manager roles see the open queue in the workspace and mark a request
+**Đã xử lý**; the guest status shows an open request until it is handled. Kitchen roles
+do not receive these requests. A closed or expired visit rejects new requests.
+
 ## Open a shift and settle a bill by hand
 
 The dine-in MVP settles tables without any external provider. A cashier or manager

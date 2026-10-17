@@ -8,6 +8,7 @@ import type {
 	Order,
 	OrderLine,
 	Payment,
+	ServiceRequest,
 	Shift,
 	Visit,
 } from "./types.js";
@@ -37,6 +38,8 @@ export const columns = {
 		"id,branch_id AS branchId,visit_id AS visitId,shift_id AS shiftId,status,method,reference,total,created_by AS createdBy,created_at AS createdAt,settled_by AS settledBy,settled_at AS settledAt,version",
 	billLine:
 		"id,bill_id AS billId,order_id AS orderId,name,quantity,unit_price AS unitPrice,tax_rate AS taxRate,total",
+	serviceRequest:
+		"id,branch_id AS branchId,visit_id AS visitId,kind,status,note,created_at AS createdAt,done_at AS doneAt,done_by AS doneBy,version",
 	payment:
 		"id,visit_id AS visitId,reference,amount,bank_account AS bankAccount,bank_code AS bankCode,bank_name AS bankName,sub_account AS subAccount,qr_mode AS qrMode,transfer_prefix AS transferPrefix,status,version,created_at AS createdAt",
 	invoice:
@@ -53,6 +56,7 @@ export type OrderRow = Omit<Order, "lines">;
 export type ShiftRow = Shift;
 export type BillRow = Omit<Bill, "lines">;
 export type BillLineRow = BillLine;
+export type ServiceRequestRow = ServiceRequest;
 export type InvoiceRow = Invoice & {
 	credentialContext: string;
 	environment: string;

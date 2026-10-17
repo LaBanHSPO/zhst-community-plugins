@@ -135,7 +135,9 @@ function Workspace() {
 	const tabs = roleTabs[effectiveRole];
 	const currentTab = tabs.includes(tab) ? tab : tabs[0];
 	const branchName = info?.branches.find((branch) => branch.id === branchId)?.name ?? "";
-	const pending = data?.orders.filter((order) => order.status === "pending").length ?? 0;
+	const pending =
+		(data?.orders.filter((order) => order.status === "pending").length ?? 0) +
+		(data?.serviceRequests.filter((request) => request.status === "open").length ?? 0);
 	function allowNavigate() {
 		return !dirty.current || window.confirm(t("unsaved"));
 	}

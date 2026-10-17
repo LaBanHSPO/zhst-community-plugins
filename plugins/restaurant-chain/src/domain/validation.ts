@@ -130,6 +130,13 @@ export const schemas = {
 		method: z.enum(["cash", "bank_transfer"]),
 		reference: z.string().trim().max(100).default(""),
 	}),
+	"call-service": z.strictObject({
+		commandId,
+		token: id,
+		kind: z.enum(["waiter", "bill"]),
+		note: z.string().trim().max(500).default(""),
+	}),
+	"attend-request": z.strictObject(revision),
 	"join-table": z.strictObject({ commandId, tableToken: id }),
 	menu: z.strictObject({ token: id, ...paging }),
 	"guest-status": z.strictObject({ token: id, ...paging }),

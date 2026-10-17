@@ -1224,4 +1224,56 @@ describe("D1 restaurant domain", () => {
 			{ code: "FORBIDDEN" },
 		);
 	});
+
+	it("records guest service requests, deduplicates them and lets staff handle them", async () => {
+		const request = await command(guest, "call-service", {
+			token: session.token,
+			kind: "waiter",
+			note: "",
+		});
+		await assert.rejects(
+			command(guest, "call-service", { token: session.token, kind: "waiter", note: "" }),
+			{ code: "ALREADY_REQUESTED" },
+		);
+		const status = (await guest.execute("guest-status", { token: session.token })) as GuestStatus;
+		assert.equal(status.requests.length, 1);
+		assert.equal(status.requests[0]!.kind, "waiter");
+		assert.equal(
+			(await workspace()).serviceRequests.filter((entry) => entry.status === "open").length,
+			1,
+		);
+		await command(admin, "attend-request", { branchId, id: request.id, expectedVersion: 1 });
+		assert.equal(
+			(await workspace()).serviceRequests.filter((entry) => entry.status === "open").length,
+			0,
+		);
+		const again = await command(guest, "call-service", {
+			token: session.token,
+			kind: "waiter",
+			note: "",
+		});
+		assert.notEqual(again.id, request.id);
+	});
+
+	it("scopes guest requests to the visit and restricts handling to floor roles", async () => {
+		const request = await command(guest, "call-service", {
+			token: session.token,
+			kind: "bill",
+			note: "Xin hóa đơn",
+		});
+		await command(admin, "save-member", { branchId, userId: "cook", role: "kitchen" });
+		const cook = new RestaurantService(db, { id: "cook", administrator: false });
+		await assert.rejects(
+			command(cook, "attend-request", { branchId, id: request.id, expectedVersion: 1 }),
+			{ code: "FORBIDDEN" },
+		);
+		await assert.rejects(
+			command(admin, "attend-request", {
+				branchId,
+				id: "other-branch-request",
+				expectedVersion: 1,
+			}),
+			{ code: "NOT_FOUND" },
+		);
+	});
 });

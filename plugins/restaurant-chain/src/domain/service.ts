@@ -46,6 +46,7 @@ import type {
 	LineRow,
 	MenuRow,
 	OrderRow,
+	ServiceRequestRow,
 	ShiftRow,
 	VisitRow,
 } from "./data.js";
@@ -97,6 +98,10 @@ export class RestaurantService {
 					return await this.freezeBill(schemas["freeze-bill"].parse(input));
 				case "settle-bill":
 					return await this.settleBill(schemas["settle-bill"].parse(input));
+				case "call-service":
+					return await this.callService(schemas["call-service"].parse(input));
+				case "attend-request":
+					return await this.attendRequest(schemas["attend-request"].parse(input));
 				case "join-table":
 					return await this.join(schemas["join-table"].parse(input));
 				case "menu":
@@ -380,7 +385,7 @@ export class RestaurantService {
 		const cursor = input.cursor ?? "";
 		const privateFinance = access.role === "administrator" || finance.includes(access.role);
 		const manager = access.role === "administrator" || access.role === "manager";
-		const [tables, visits, menu, orders, members, payments, invoices, jobs, exceptions, bills, shift, shifts] =
+		const [tables, visits, menu, orders, members, payments, invoices, jobs, exceptions, bills, shift, shifts, serviceRequests] =
 			await Promise.all([
 				this.rows<Table>(
 					"SELECT id,name,token,version FROM rc_tables WHERE branch_id=? AND id>? ORDER BY id LIMIT ?",
@@ -485,8 +490,16 @@ export class RestaurantService {
 							branch.id,
 						)
 					: [],
+				access.role === "kitchen"
+					? []
+					: this.rows<ServiceRequestRow>(
+							`SELECT ${columns.serviceRequest} FROM rc_service_requests WHERE branch_id=? AND id>? ORDER BY id LIMIT ?`,
+							branch.id,
+							cursor,
+							limit + 1,
+						),
 			]);
-		const pages = [tables, visits, menu, orders, payments, invoices, jobs, exceptions, bills];
+		const pages = [tables, visits, menu, orders, payments, invoices, jobs, exceptions, bills, serviceRequests];
 		const boundaries = pages
 			.filter((page) => page.length > limit)
 			.map((page) => page[limit - 1]!.id);
@@ -515,6 +528,7 @@ export class RestaurantService {
 			shift: shift ?? null,
 			shifts,
 			bills: trim(bills),
+			serviceRequests: trim(serviceRequests),
 			nextCursor,
 		};
 	}
@@ -925,6 +939,77 @@ export class RestaurantService {
 			};
 		});
 	}
+	private async callService(input: ActionInputs["call-service"]): Promise<unknown> {
+		const visit = await this.guest(input.token);
+		return this.commit(
+			await this.context("call-service", input, undefined, `guest:${await hash(input.token)}`),
+			"call-service",
+			async () => {
+				const existing = await this.stmt(
+					"SELECT id FROM rc_service_requests WHERE visit_id=? AND kind=? AND status='open'",
+					visit.id,
+					input.kind,
+				).first<{ id: string }>();
+				if (existing)
+					throw new DomainError(
+						"ALREADY_REQUESTED",
+						"A request of this kind is already open",
+						409,
+					);
+				const id = crypto.randomUUID();
+				return {
+					statements: [
+						...this.guestFence(visit),
+						...this.assertion(
+							"NOT EXISTS(SELECT 1 FROM rc_service_requests WHERE visit_id=? AND kind=? AND status='open')",
+							visit.id,
+							input.kind,
+						),
+						this.stmt(
+							"INSERT INTO rc_service_requests(id,branch_id,visit_id,kind,status,note,created_at) VALUES (?,?,?,?,'open',?,?)",
+							id,
+							visit.branchId,
+							visit.id,
+							input.kind,
+							input.note,
+							Date.now(),
+						),
+					],
+					result: { id, version: 1 },
+					branchId: visit.branchId,
+					entityId: id,
+					detail: { kind: input.kind },
+				};
+			},
+		);
+	}
+	private async attendRequest(input: ActionInputs["attend-request"]): Promise<unknown> {
+		const access = await this.access(input.branchId, floor);
+		return this.commit(await this.context("attend-request", input, access), "attend-request", async () => {
+			await this.required<{ id: string }>(
+				"SELECT id FROM rc_service_requests WHERE branch_id=? AND id=?",
+				input.branchId,
+				input.id,
+			);
+			return {
+				statements: [
+					...this.fenced(
+						this.stmt(
+							"UPDATE rc_service_requests SET status='done',done_by=?,done_at=?,version=version+1 WHERE branch_id=? AND id=? AND version=? AND status='open'",
+							this.actor?.id ?? null,
+							Date.now(),
+							input.branchId,
+							input.id,
+							input.expectedVersion,
+						),
+					),
+				],
+				result: { id: input.id, version: input.expectedVersion + 1 },
+				branchId: input.branchId,
+				entityId: input.id,
+			};
+		});
+	}
 	private async join(input: ActionInputs["join-table"]): Promise<unknown> {
 		const table = await this.required<Table & { branchId: string }>(
 			"SELECT id,name,token,version,branch_id AS branchId FROM rc_tables WHERE token=?",
@@ -1014,11 +1099,16 @@ export class RestaurantService {
 			"SELECT COALESCE(SUM(total),0) AS total FROM rc_orders WHERE visit_id=? AND status='confirmed'",
 			visit.id,
 		);
+		const requests = await this.rows<ServiceRequestRow>(
+			`SELECT ${columns.serviceRequest} FROM rc_service_requests WHERE visit_id=? AND status='open' ORDER BY created_at,id`,
+			visit.id,
+		);
 		const { branchId: _branchId, ...publicVisit } = visit;
 		return {
 			visit: publicVisit,
 			orders: orders.slice(0, limit),
 			total: total.total,
+			requests,
 			nextCursor: orders.length > limit ? orders[limit - 1]!.id : null,
 		};
 	}

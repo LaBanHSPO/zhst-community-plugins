@@ -317,6 +317,22 @@ export const messages = {
 		"Còn hóa đơn chờ thu trong ca. Chốt bill và thu tiền trước khi chốt ca.",
 		"ما زالت هناك حسابات بانتظار الدفع في الوردية. ثبّت الحسابات وحصّل المبالغ قبل إغلاق الوردية.",
 	],
+	done: ["Đã xử lý", "تمت المعالجة"],
+	callWaiter: ["Gọi nhân viên", "طلب الموظف"],
+	requestBill: ["Yêu cầu tính tiền", "طلب الحساب"],
+	serviceRequests: ["Yêu cầu phục vụ", "طلبات الخدمة"],
+	attendRequest: ["Đã xử lý", "تمت المعالجة"],
+	requestSent: [
+		"Đã gửi yêu cầu. Nhân viên sẽ tới bàn.",
+		"تم إرسال الطلب. سيأتي الموظف إلى الطاولة.",
+	],
+	alreadyRequested: ["Yêu cầu này đang chờ xử lý.", "هذا الطلب قيد المعالجة."],
+	noRequests: ["Không có yêu cầu nào.", "لا توجد طلبات."],
+	offline: [
+		"Đang mất kết nối. Thao tác chưa được xác nhận sẽ được gửi lại khi có mạng.",
+		"انقطع الاتصال. ستُعاد المحاولة عند توفر الشبكة.",
+	],
+	backOnline: ["Đã kết nối lại.", "تم الاتصال مجدداً."],
 } as const;
 export type TextKey = keyof typeof messages;
 const LocaleContext = createContext<{ locale: string; setLocale: (locale: string) => void }>({

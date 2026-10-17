@@ -18,6 +18,7 @@ const empty: Workspace = {
 	shift: null,
 	shifts: [],
 	bills: [],
+	serviceRequests: [],
 	nextCursor: "next",
 };
 

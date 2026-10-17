@@ -356,6 +356,7 @@ export function Floor({
 			),
 		[data.orders],
 	);
+	const openRequests = data.serviceRequests.filter((request) => request.status === "open");
 	function stateFor(tableId: string) {
 		const visit = openVisits.find((candidate) => candidate.tableId === tableId);
 		return visit ? visit.status : "closed";
@@ -439,7 +440,31 @@ export function Floor({
 							</span>
 						)}
 					</header>
-					{orders.length === 0 && <p className="rc-empty">{t("empty")}</p>}
+					{openRequests.length > 0 && (
+						<div className="rc-service-rail">
+							{openRequests.map((request) => {
+								const visit = data.visits.find((candidate) => candidate.id === request.visitId);
+								const table = data.tables.find((candidate) => candidate.id === visit?.tableId);
+								return (
+									<article className="rc-service-card" key={request.id}>
+										<div>
+											<span className="rc-service-kind">
+												{t(request.kind === "waiter" ? "callWaiter" : "requestBill")}
+											</span>
+											<small className="rc-muted">{table?.name ?? request.visitId.slice(-6)}</small>
+										</div>
+										<Action
+											action="attend-request"
+											label="attendRequest"
+											input={{ branchId, id: request.id, expectedVersion: request.version }}
+											onDone={onDone}
+										/>
+									</article>
+								);
+							})}
+						</div>
+					)}
+					{orders.length === 0 && openRequests.length === 0 && <p className="rc-empty">{t("empty")}</p>}
 					<div className="rc-rail">
 						{orders.map((order) => {
 							const visit = data.visits.find((candidate) => candidate.id === order.visitId);

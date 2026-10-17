@@ -5,6 +5,19 @@ export type QrMode = "direct" | "virtual" | "memo";
 export type ShiftStatus = "open" | "closed";
 export type BillMethod = "cash" | "bank_transfer";
 export type BillStatus = "open" | "settled" | "void";
+export type ServiceKind = "waiter" | "bill";
+export interface ServiceRequest {
+	id: string;
+	branchId: string;
+	visitId: string;
+	kind: ServiceKind;
+	status: "open" | "done";
+	note: string;
+	createdAt: number;
+	doneAt: number | null;
+	doneBy: string | null;
+	version: number;
+}
 export interface Issuer {
 	name: string;
 	taxCode: string;
@@ -214,6 +227,7 @@ export interface Workspace {
 	shift: Shift | null;
 	shifts: Shift[];
 	bills: Bill[];
+	serviceRequests: ServiceRequest[];
 	nextCursor: string | null;
 }
 export interface GuestSession {
@@ -233,6 +247,7 @@ export interface GuestStatus {
 	visit: Visit;
 	orders: Order[];
 	total: number;
+	requests: ServiceRequest[];
 	nextCursor: string | null;
 }
 export interface CommandResult {
@@ -297,6 +312,8 @@ export interface ActionInputs {
 	"close-shift": RevisionCommand & { countedCash: number; note: string };
 	"freeze-bill": RevisionCommand;
 	"settle-bill": RevisionCommand & { method: BillMethod; reference: string };
+	"call-service": { commandId: string; token: string; kind: ServiceKind; note: string };
+	"attend-request": RevisionCommand;
 	"join-table": { commandId: string; tableToken: string };
 	menu: { token: string; cursor?: string; limit?: number };
 	"guest-status": { token: string; cursor?: string; limit?: number };
